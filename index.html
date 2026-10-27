@@ -127,6 +127,30 @@ tr.match td{background:var(--accent-soft)}
 .a{align-self:flex-start;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:8px 10px;max-width:92%}
 .a ul{margin:4px 0 0;padding-left:18px}
 
+/* ---------- Home: search-first ---------- */
+.home{min-height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:22px;padding-block:48px 64px;text-align:center}
+.home .brand{font-family:var(--f-display);font-weight:700;font-size:clamp(40px,8vw,72px);letter-spacing:-.02em;line-height:1;margin:0}
+.home .brand span{color:var(--accent)}
+.home .tag{color:var(--muted);font-size:16px;max-width:52ch;margin:0;text-wrap:balance}
+.search{width:100%;max-width:880px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;grid-template-columns:1.3fr .9fr .8fr 1.4fr auto;gap:6px;box-shadow:0 10px 30px rgba(15,40,38,.08)}
+.search .fld{display:flex;flex-direction:column;gap:2px;text-align:left;padding:6px 10px;border-radius:10px;min-width:0}
+.search .fld:focus-within{background:var(--sunk)}
+.search label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.search input,.search select{border:0;background:transparent;padding:2px 0;font-size:15px;width:100%;min-width:0}
+.search input:focus,.search select:focus{outline:none}
+.search .go{border:0;background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:0 24px;font:700 15px var(--f-body);cursor:pointer;min-height:52px}
+.search .go:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.more{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;color:var(--muted);font-size:13px;align-items:center}
+.more input{padding:4px 8px}
+.home-note{color:var(--muted);font-size:12px}
+.home-err{color:var(--warn);font-size:13px;min-height:1em}
+.newsearch{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:6px 12px;font:600 13px var(--f-body);cursor:pointer}
+.fresh{font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;border-radius:999px;padding:2px 7px;white-space:nowrap}
+.fresh.live{background:var(--ok-soft);color:var(--ok)}
+.fresh.saved{background:var(--unk-soft);color:var(--unk)}
+.checking{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+@media (max-width:760px){.search{grid-template-columns:1fr 1fr}.search .fld.kw{grid-column:1/-1}.search .go{grid-column:1/-1}}
 @media (max-width:900px){
   .main{grid-template-columns:minmax(0,1fr)}
   .right{min-height:420px;order:-1}
@@ -140,13 +164,33 @@ tr.match td{background:var(--accent-soft)}
 </head>
 <body>
 
-<div class="app">
+<section class="home" id="home">
+  <h1 class="brand">Easy<span>Apt</span></h1>
+  <p class="tag">Tell us what you need. We check the apartment websites live and show you the exact floor plans and units that fit.</p>
+  <form class="search" id="homeform" autocomplete="off">
+    <div class="fld"><label for="h-area">Area</label><input id="h-area" list="areas" placeholder="City or ZIP" value="Kyle, TX"></div>
+    <div class="fld"><label for="h-budget">Max rent</label><input id="h-budget" type="number" inputmode="numeric" step="25" min="500" placeholder="$ / month" value="1600"></div>
+    <div class="fld"><label for="h-beds">Bedrooms</label>
+      <select id="h-beds"><option value="any">Any</option><option value="0">Studio</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
+    <div class="fld kw"><label for="h-q">Keywords</label><input id="h-q" placeholder="Community or floor plan name"></div>
+    <button class="go" type="submit">Search</button>
+  </form>
+  <div class="more"><label for="h-movein">Move in by</label><input id="h-movein" type="date"></div>
+  <div class="home-err" id="homeerr" aria-live="polite"></div>
+  <div class="home-note">Covering Kyle, TX. More areas coming.</div>
+  <datalist id="areas"><option value="Kyle, TX"><option value="78640"></datalist>
+</section>
+
+<div class="app" id="app" hidden>
   <header class="top">
     <div>
       <h1>Easy<span>Apt</span></h1>
-      <div class="sub">Kyle, TX · Every floor plan that fits, every available unit in it, and the tour for each layout.</div>
+      <div class="sub" id="searchsum">Kyle, TX</div>
     </div>
-    <div class="demo" id="updated">Loading live availability…</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="demo" id="updated"></div>
+      <button class="newsearch" id="newsearch" type="button">New search</button>
+    </div>
   </header>
 
   <section class="filters" aria-label="Search criteria">
@@ -159,6 +203,7 @@ tr.match td{background:var(--accent-soft)}
     <div class="f"><label for="budget">Max rent ($/mo)</label><input id="budget" type="number" step="25" min="500" value="1600"></div>
     <div class="f"><label for="sqft">Min sq ft</label><input id="sqft" type="number" step="25" min="0" value="0"></div>
     <div class="f"><label for="movein">Move in by</label><input id="movein" type="date"></div>
+    <div class="f"><label for="kw">Keywords</label><input id="kw" placeholder="Name or plan" style="width:150px"></div>
     <div class="f"><label for="floorpref">Floor</label>
       <select id="floorpref"><option value="any">Any floor</option><option value="ground">Ground floor</option><option value="upper">Not ground floor</option><option value="top">Top floor</option></select></div>
     <div class="count" id="count" aria-live="polite"></div>
@@ -176,6 +221,8 @@ tr.match td{background:var(--accent-soft)}
 <script>
 /* ---------- Live data: Supabase "listings" view (one row per community, collected from Apartments.com) ---------- */
 const SB_URL="https://huyaibxncjaizzousdqg.supabase.co", SB_KEY="sb_publishable_hkV5T81nVeb_DmItt_Aylw_lnXYgU1W";
+// Public anon key (safe to ship in a web page); used to call the live-check function.
+const SB_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1eWFpYnhuY2phaXp6b3VzZHFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxMTQ0OTIsImV4cCI6MjEwODY5MDQ5Mn0.OtomJwY7bxTVyh8UXkWPx3yKUKuNzPq1cEcLGbwNSSg";
 const TODAY=new Date(); TODAY.setHours(0,0,0,0);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const MON={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
@@ -221,7 +268,7 @@ function buildProps(rows){
       return {...pl,units,tour:tour?`https://my.matterport.com/show/?m=${tour[0]}`:null,key:id+":"+pl.code+"|"+pl.sqft};
     }).filter(pl=>pl.units.length).sort((a,b)=>a.beds-b.beds||a.sqft-b.sqft);
     const addr=(d.addr||"").replace(/,?\s*Kyle,?\s*TX\s*\d*/i,"");
-    return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,updated:new Date(row.scraped_at)};
+    return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,updated:new Date(row.scraped_at),live:!!row.live};
   }).filter(p=>p.plans.length&&p.lat);
 }
 let PROPS=[];
@@ -232,7 +279,7 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={beds:"any",baths:0,budget:1600,sqft:0,movein:"",floor:"any",sel:null,hlProp:null};
+const S={beds:"any",baths:0,budget:1600,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
@@ -258,8 +305,10 @@ function results(){
   const out=[];
   for(const p of PROPS){
     const plans=[];
+    const toks=S.q.toLowerCase().split(/\s+/).filter(Boolean);
     for(const pl of p.plans){
       if(!planMatches(pl)) continue;
+      if(toks.length){const hay=(p.name+" "+p.addr+" "+pl.code).toLowerCase(); if(!toks.every(t=>hay.includes(t))) continue;}
       const m=pl.units.filter(u=>unitMatches(u,p));
       if(m.length) plans.push({pl,m});
     }
@@ -275,11 +324,11 @@ function render(){
   const np=res.reduce((a,r)=>a+r.plans.length,0);
   $("count").innerHTML=`<b>${nu}</b> units · ${np} floor plans · ${res.length} communities`;
   const L=$("list");
-  if(!res.length){L.innerHTML=`<div class="empty">No units match. Raise the max rent or widen the bedroom filter.</div>`;drawMap(res);return}
+  if(!res.length){L.innerHTML=`<div class="empty">No units match. Try a higher max rent, a different bedroom count, or fewer keywords.</div>`;drawMap(res);return}
   L.innerHTML=res.map((r,i)=>`
     <article class="prop${S.hlProp===r.p.id?" hl":""}" id="prop-${r.p.id}">
       <div class="prop-h" data-prop="${r.p.id}">
-        <div><h3>${esc(r.p.name)}</h3><div class="addr">${esc(r.p.addr)}, Kyle TX</div></div>
+        <div><h3>${esc(r.p.name)}</h3><div class="addr">${esc(r.p.addr)}, Kyle TX · ${r.p.live?'<span class="fresh live">Live</span>':`<span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div></div>
         <div class="pin-no">${i+1}</div>
       </div>
       ${r.plans.map(({pl,m})=>`
@@ -405,6 +454,7 @@ $("budget").addEventListener("input",e=>{S.budget=+e.target.value||99999;render(
 $("sqft").addEventListener("input",e=>{S.sqft=+e.target.value||0;render()});
 $("movein").addEventListener("change",e=>{S.movein=e.target.value;render()});
 $("floorpref").addEventListener("change",e=>{S.floor=e.target.value;render()});
+$("kw").addEventListener("input",e=>{S.q=e.target.value.trim();render()});
 $("list").addEventListener("click",e=>{
   const pl=e.target.closest(".plan");
   if(pl){S.sel=pl.dataset.key;S.hlProp=null;render();return}
@@ -423,19 +473,47 @@ $("detail").addEventListener("submit",e=>{
 });
 window.addEventListener("resize",()=>MAP.invalidateSize());
 
-async function init(){
+/* ---------- Search flow: home -> live check -> results ---------- */
+const AREAS=/^(kyle|kyle,?\s*tx|kyle,?\s*texas|78640)$/i;
+function syncControls(){
+  [...$("beds").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.v===S.beds));
+  $("budget").value=S.budget<99999?S.budget:""; $("movein").value=S.movein; $("kw").value=S.q;
+}
+function fmtTime(d){return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
+async function runSearch(){
+  $("updated").innerHTML='<span class="checking"></span>Checking property websites live…';
+  $("list").innerHTML='<div class="empty"><span class="checking"></span>Checking property websites for available units…</div>';
+  $("detail").hidden=true; S.sel=null;
   try{
-    const rows=await fetch(`${SB_URL}/rest/v1/listings?select=data,scraped_at`,{headers:{apikey:SB_KEY}}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
+    const [liveRes,saved]=await Promise.all([
+      fetch(`${SB_URL}/functions/v1/scrape`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({live:true})}).then(r=>r.ok?r.json():{results:[]}).catch(()=>({results:[]})),
+      fetch(`${SB_URL}/rest/v1/listings?select=source_url,data,scraped_at`,{headers:{apikey:SB_KEY}}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()})
+    ]);
+    const liveBy=new Map((liveRes.results||[]).filter(x=>x.data).map(x=>[x.url,x]));
+    const rows=saved.map(r=>{const l=liveBy.get(r.source_url);return l?{data:l.data,scraped_at:l.fetched_at,live:l.status==="live"}:{...r,live:false}});
     PROPS=buildProps(rows);
-    const nU=PROPS.reduce((a,p)=>a+p.plans.reduce((b,x)=>b+x.units.length,0),0);
-    const last=new Date(Math.max(...PROPS.map(p=>p.updated)));
-    $("updated").textContent=`Live: ${nU.toLocaleString()} available units across ${PROPS.length} communities · updated ${last.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
-    MAP.fitBounds(PROPS.map(p=>[p.lat,p.lng]),{padding:[30,30]});
-  }catch(e){$("updated").textContent="Couldn't load listings right now. Refresh to try again.";}
+    const nLive=PROPS.filter(p=>p.live).length, nSaved=PROPS.length-nLive;
+    $("updated").textContent=`Checked ${nLive} websites live at ${fmtTime(new Date())}`+(nSaved?` · ${nSaved} communities show saved data`:"");
+    MAP.invalidateSize(); if(PROPS.length) MAP.fitBounds(PROPS.map(p=>[p.lat,p.lng]),{padding:[30,30]});
+  }catch(e){$("updated").textContent="Couldn't load listings right now. Try the search again.";}
   render();
   const rs=results(); const withTour=rs.flatMap(r=>r.plans).find(x=>tourOf(x.pl)); const pick=withTour||(rs[0]&&rs[0].plans[0]); if(pick){S.sel=pick.pl.key;render()}
 }
-init();
+function showHome(){ $("app").hidden=true; $("home").hidden=false; try{location.hash=""}catch(e){} $("h-area").focus(); }
+$("homeform").addEventListener("submit",e=>{
+  e.preventDefault();
+  const area=$("h-area").value.trim();
+  if(area && !AREAS.test(area)){ $("homeerr").textContent=`EasyApt covers Kyle, TX right now. "${area}" isn't available yet.`; return; }
+  $("homeerr").textContent="";
+  S.budget=+$("h-budget").value||99999; S.beds=$("h-beds").value; S.q=$("h-q").value.trim(); S.movein=$("h-movein").value;
+  const bits=["Kyle, TX", S.beds==="any"?"any bedrooms":S.beds==="0"?"studio":S.beds+" bed", S.budget<99999?"up to "+fmt(S.budget):"any budget"]; if(S.q) bits.push(`"${S.q}"`);
+  $("searchsum").textContent=bits.join(" · ");
+  syncControls(); $("home").hidden=true; $("app").hidden=false; try{location.hash="results"}catch(e){}
+  runSearch();
+});
+$("newsearch").addEventListener("click",showHome);
+window.addEventListener("hashchange",()=>{ if(location.hash!=="#results" && !$("app").hidden) showHome(); });
+
 </script>
 
 </body>

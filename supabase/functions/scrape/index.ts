@@ -1,5 +1,6 @@
-// EasyApt daily refresh: reads availability from each property's own website platform.
-// POST {"url": "<source url>"}  -> refresh one community (must exist in `sources` with a reader)
+// EasyApt live availability: reads units from each property's own website platform when a client searches.
+// POST {"live": true}           -> check every community that has a reader (10-minute reuse window), return results
+// POST {"url": "<source url>"}  -> refresh one community manually (must exist in `sources` with a reader)
 // Output row shape (raw_scrapes.data) matches what the website expects:
 //   { name, addr, lat, lng, phone, site, tours, models: [[plan, beds, baths, sqft, label, [[unit, price, availISO, floor]]]] }
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -41,8 +42,47 @@ async function readSightmap(cfg: { api: string }): Promise<Model[]> {
 
 const READERS: Record<string, (cfg: any) => Promise<Model[]>> = { sightmap: readSightmap };
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+// Live mode: called by the website when a client searches. Refreshes every community that has a reader,
+// skipping any refreshed in the last 10 minutes, and reports which are fresh.
+async function live() {
+  const { data: srcs } = await sb.from("sources").select("url, reader, reader_config, meta, last_ok").eq("active", true).not("reader", "is", null);
+  const cutoff = Date.now() - 10 * 60e3;
+  const latest = async (url: string) =>
+    (await sb.from("listings").select("data, scraped_at").eq("source_url", url).maybeSingle()).data;
+  const results = await Promise.all((srcs ?? []).map(async (src) => {
+    if (src.last_ok && new Date(src.last_ok).getTime() > cutoff) {
+      const row = await latest(src.url);
+      if (row) return { url: src.url, status: "live", fetched_at: row.scraped_at, data: row.data };
+    }
+    try {
+      const models = await READERS[src.reader](src.reader_config);
+      if (!models.length) throw new Error("Reader returned no available units");
+      const data = { ...(src.meta ?? {}), models, reader: src.reader };
+      const now = new Date().toISOString();
+      // Short-lived copy so repeat searches within 10 minutes are instant.
+      await sb.from("raw_scrapes").insert({ source_url: src.url, data, scraped_at: now });
+      await sb.from("sources").update({ last_ok: now, last_error: null }).eq("url", src.url);
+      return { url: src.url, status: "live", fetched_at: now, data };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await sb.from("sources").update({ last_error: msg.slice(0, 300) }).eq("url", src.url);
+      const row = await latest(src.url);
+      return { url: src.url, status: "fallback", fetched_at: row?.scraped_at ?? null, data: row?.data ?? null };
+    }
+  }));
+  return new Response(JSON.stringify({ results }), { headers: { ...CORS, "Content-Type": "application/json" } });
+}
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const body = await req.json().catch(() => ({}));
+  if (body.live) return await live();
   const url = String(body.url || "");
   try {
     const { data: src } = await sb.from("sources").select("url, reader, reader_config, meta").eq("url", url).eq("active", true).maybeSingle();
