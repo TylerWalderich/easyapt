@@ -128,6 +128,13 @@ tr.match td{background:var(--accent-soft)}
 .a{align-self:flex-start;background:var(--sunk);border-radius:10px 10px 10px 2px;padding:8px 10px;max-width:92%}
 .a ul{margin:4px 0 0;padding-left:18px}
 
+/* ---------- Complexes without posted availability ---------- */
+.others{flex:none;background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.others h4{margin:0;font-family:var(--f-display);font-size:15px}
+.others p{margin:0;color:var(--muted);font-size:12px}
+.other{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:8px}
+.other small{display:block;color:var(--muted);font-size:12px}
+.other .btn{padding:5px 10px;font-size:12px;flex:none}
 /* ---------- Home: search-first ---------- */
 .home{min-height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:22px;padding-block:48px 64px;text-align:center}
 .home .brand{font-family:var(--f-display);font-weight:700;font-size:clamp(40px,8vw,72px);letter-spacing:-.02em;line-height:1;margin:0}
@@ -169,7 +176,7 @@ tr.match td{background:var(--accent-soft)}
   <h1 class="brand">Easy<span>Apt</span></h1>
   <p class="tag">Tell us what you need. We check the apartment websites live and show you the exact floor plans and units that fit.</p>
   <form class="search" id="homeform" autocomplete="off">
-    <div class="fld"><label for="h-area">Area</label><input id="h-area" list="areas" placeholder="City or ZIP" value="Kyle, TX"></div>
+    <div class="fld"><label for="h-area">Area</label><input id="h-area" placeholder="City, neighborhood, or ZIP" value="Kyle, TX"></div>
     <div class="fld"><label for="h-budget">Max rent</label><input id="h-budget" type="number" inputmode="numeric" step="25" min="500" placeholder="$ / month" value="1600"></div>
     <div class="fld"><label for="h-beds">Bedrooms</label>
       <select id="h-beds"><option value="any">Any</option><option value="0">Studio</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
@@ -178,8 +185,7 @@ tr.match td{background:var(--accent-soft)}
   </form>
   <div class="more"><label for="h-movein">Move in by</label><input id="h-movein" type="date"></div>
   <div class="home-err" id="homeerr" aria-live="polite"></div>
-  <div class="home-note">Covering Kyle, TX. More areas coming.</div>
-  <datalist id="areas"><option value="Kyle, TX"><option value="78640"></datalist>
+  <div class="home-note">Search any US city or ZIP. The first search of a new area takes up to a minute while we find its apartment websites.</div>
 </section>
 
 <div class="app" id="app" hidden>
@@ -213,7 +219,7 @@ tr.match td{background:var(--accent-soft)}
   <div class="main">
     <div class="list" id="list"></div>
     <div class="right">
-      <div id="map" aria-label="Map of matching communities in Kyle"></div>
+      <div id="map" aria-label="Map of matching communities"></div>
       <div class="detail" id="detail" hidden></div>
     </div>
   </div>
@@ -268,7 +274,7 @@ function buildProps(rows){
       if(!tour) tour=tours.find(t=>{const m=t[1].replace(/,/g,"").match(/(\d{3,4})\s*s\.?f/i);return m&&+m[1]===pl.sqft});
       return {...pl,units,tour:tour?`https://my.matterport.com/show/?m=${tour[0]}`:null,key:id+":"+pl.code+"|"+pl.sqft};
     }).filter(pl=>pl.units.length).sort((a,b)=>a.beds-b.beds||a.sqft-b.sqft);
-    const addr=(d.addr||"").replace(/,?\s*Kyle,?\s*TX\s*\d*/i,"");
+    const addr=(d.addr||"").replace(/,\s*(USA|United States)$/i,"");
     return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,updated:new Date(row.scraped_at),live:!!row.live};
   }).filter(p=>p.plans.length&&p.lat);
 }
@@ -280,7 +286,7 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={beds:"any",baths:0,budget:1600,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
+const S={area:"Kyle, TX",beds:"any",baths:0,budget:1600,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
@@ -325,11 +331,12 @@ function render(){
   const np=res.reduce((a,r)=>a+r.plans.length,0);
   $("count").innerHTML=`<b>${nu}</b> units · ${np} floor plans · ${res.length} communities`;
   const L=$("list");
-  if(!res.length){L.innerHTML=`<div class="empty">No units match. Try a higher max rent, a different bedroom count, or fewer keywords.</div>`;drawMap(res);return}
+  const others=othersHtml();
+  if(!res.length){L.innerHTML=`<div class="empty">No posted units match. Try a higher max rent, a different bedroom count, or fewer keywords.</div>`+others;drawMap(res);return}
   L.innerHTML=res.map((r,i)=>`
     <article class="prop${S.hlProp===r.p.id?" hl":""}" id="prop-${r.p.id}">
       <div class="prop-h" data-prop="${r.p.id}">
-        <div><h3>${esc(r.p.name)}</h3><div class="addr">${esc(r.p.addr)}, Kyle TX · ${r.p.live?'<span class="fresh live">Live</span>':`<span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div></div>
+        <div><h3>${esc(r.p.name)}</h3><div class="addr">${esc(r.p.addr)} · ${r.p.live?'<span class="fresh live">Live</span>':`<span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div></div>
         <div class="pin-no">${i+1}</div>
       </div>
       ${r.plans.map(({pl,m})=>`
@@ -339,7 +346,7 @@ function render(){
             <small>${m.some(u=>u.price)?"from "+fmt(Math.min(...m.filter(u=>u.price).map(u=>u.price)))+"/mo":"Call for pricing"}</small></span>
           <span class="avail"><b>${m.length}</b><small>available</small></span>
         </button>`).join("")}
-    </article>`).join("");
+    </article>`).join("")+others;
   drawMap(res);
   if(S.sel) renderDetail();
 }
@@ -359,6 +366,21 @@ function drawMap(res){
     if(n) m.on("click",()=>{S.hlProp=p.id;S.sel=null;$("detail").hidden=true;render();
       const el=$("prop-"+p.id);if(el)el.scrollIntoView({block:"nearest",behavior:"smooth"})});
   }
+  for(const o of OTHERS){ if(o.lat==null) continue;
+    const icon=L.divIcon({className:"",html:'<div class="mk dim"></div>',iconSize:[12,12],iconAnchor:[6,6]});
+    L.marker([o.lat,o.lng],{icon,title:o.name,keyboard:false}).addTo(PINS).bindTooltip(o.name+" (availability not posted online)");
+  }
+}
+/* Complexes found in the area whose websites don't post unit availability we can read. */
+let OTHERS=[];
+function othersHtml(){
+  if(!OTHERS.length) return "";
+  const toks=S.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const list=OTHERS.filter(o=>!toks.length||toks.every(t=>(o.name+" "+(o.addr||"")).toLowerCase().includes(t)));
+  if(!list.length) return "";
+  return `<section class="others"><h4>${list.length} more ${list.length===1?"complex":"complexes"} nearby</h4>
+    <p>These don't post live availability we can read. Check their websites or call.</p>
+    ${list.map(o=>`<div class="other"><div><b>${esc(o.name)}</b><small>${esc((o.addr||"").replace(/,\s*USA$/,""))}${o.phone?" · "+esc(o.phone):""}</small></div>${o.site?`<a class="btn ghost" href="${esc(o.site)}" target="_blank" rel="noopener">Website</a>`:""}</div>`).join("")}</section>`;
 }
 
 /* ---------- Detail panel ---------- */
@@ -373,7 +395,7 @@ function renderDetail(){
   D.hidden=false;
   D.innerHTML=`
     <div class="d-top">
-      <div><h2>${esc(p.name)} · ${esc(pl.code)}</h2><div class="addr">${esc(p.addr)}, Kyle TX${p.phone?" · Leasing "+esc(p.phone):""}${p.site?` · <a href="${esc(p.site)}" target="_blank" rel="noopener">Property website</a>`:""}</div></div>
+      <div><h2>${esc(p.name)} · ${esc(pl.code)}</h2><div class="addr">${esc(p.addr)}${p.phone?" · Leasing "+esc(p.phone):""}${p.site?` · <a href="${esc(p.site)}" target="_blank" rel="noopener">Property website</a>`:""}</div></div>
       <button class="close" id="close">Close</button>
     </div>
     <div class="d-grid">
@@ -475,7 +497,6 @@ $("detail").addEventListener("submit",e=>{
 window.addEventListener("resize",()=>MAP.invalidateSize());
 
 /* ---------- Search flow: home -> live check -> results ---------- */
-const AREAS=/^(kyle|kyle,?\s*tx|kyle,?\s*texas|78640)$/i;
 function syncControls(){
   [...$("beds").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.v===S.beds));
   $("budget").value=S.budget<99999?S.budget:""; $("movein").value=S.movein; $("kw").value=S.q;
@@ -486,17 +507,20 @@ async function runSearch(){
   $("list").innerHTML='<div class="empty"><span class="checking"></span>Checking property websites for available units…</div>';
   $("detail").hidden=true; S.sel=null;
   try{
-    const [liveRes,saved]=await Promise.all([
-      fetch(`${SB_URL}/functions/v1/scrape`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({live:true})}).then(r=>r.ok?r.json():{results:[]}).catch(()=>({results:[]})),
-      fetch(`${SB_URL}/rest/v1/listings?select=source_url,data,scraped_at`,{headers:{apikey:SB_KEY}}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()})
-    ]);
-    const liveBy=new Map((liveRes.results||[]).filter(x=>x.data).map(x=>[x.url,x]));
-    const rows=saved.map(r=>{const l=liveBy.get(r.source_url);return l?{data:l.data,scraped_at:l.fetched_at,live:l.status==="live"}:{...r,live:false}});
-    PROPS=buildProps(rows);
+    const slow=setTimeout(()=>{$("updated").innerHTML='<span class="checking"></span>New area: finding apartment websites (up to a minute)…'},4000);
+    const res=await fetch(`${SB_URL}/functions/v1/search`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({area:S.area})}).then(r=>r.json());
+    clearTimeout(slow);
+    if(res.error) throw new Error(res.error);
+    const comms=res.communities||[];
+    const withData=comms.filter(c=>c.models&&c.models.length&&c.lat!=null);
+    OTHERS=comms.filter(c=>!(c.models&&c.models.length)&&c.site).sort((a,b)=>a.name.localeCompare(b.name));
+    PROPS=buildProps(withData.map(c=>({data:c,scraped_at:c.fetched_at,live:c.status==="live"})));
     const nLive=PROPS.filter(p=>p.live).length, nSaved=PROPS.length-nLive;
-    $("updated").textContent=`Checked ${nLive} websites live at ${fmtTime(new Date())}`+(nSaved?` · ${nSaved} communities show saved data`:"");
-    MAP.invalidateSize(); if(PROPS.length) MAP.fitBounds(PROPS.map(p=>[p.lat,p.lng]),{padding:[30,30]});
-  }catch(e){$("updated").textContent="Couldn't load listings right now. Try the search again.";}
+    $("updated").textContent=comms.length?`Found ${comms.length} complexes · ${nLive} checked live at ${fmtTime(new Date())}`+(nSaved?` · ${nSaved} saved`:""):`No apartment complexes found for "${S.area}".`;
+    MAP.invalidateSize();
+    const pts=comms.filter(c=>c.lat!=null).map(c=>[c.lat,c.lng]);
+    if(pts.length) MAP.fitBounds(pts,{padding:[30,30]});
+  }catch(e){PROPS=[];OTHERS=[];$("updated").textContent="Search didn't finish: "+(e.message||"network error")+". Try again.";}
   render();
   const rs=results(); const withTour=rs.flatMap(r=>r.plans).find(x=>tourOf(x.pl)); const pick=withTour||(rs[0]&&rs[0].plans[0]); if(pick){S.sel=pick.pl.key;render()}
 }
@@ -504,10 +528,10 @@ function showHome(){ $("app").hidden=true; $("home").hidden=false; try{location.
 $("homeform").addEventListener("submit",e=>{
   e.preventDefault();
   const area=$("h-area").value.trim();
-  if(area && !AREAS.test(area)){ $("homeerr").textContent=`EasyApt covers Kyle, TX right now. "${area}" isn't available yet.`; return; }
-  $("homeerr").textContent="";
+  if(area.length<2){ $("homeerr").textContent="Enter a city, neighborhood, or ZIP code."; return; }
+  $("homeerr").textContent=""; S.area=area;
   S.budget=+$("h-budget").value||99999; S.beds=$("h-beds").value; S.q=$("h-q").value.trim(); S.movein=$("h-movein").value;
-  const bits=["Kyle, TX", S.beds==="any"?"any bedrooms":S.beds==="0"?"studio":S.beds+" bed", S.budget<99999?"up to "+fmt(S.budget):"any budget"]; if(S.q) bits.push(`"${S.q}"`);
+  const bits=[area, S.beds==="any"?"any bedrooms":S.beds==="0"?"studio":S.beds+" bed", S.budget<99999?"up to "+fmt(S.budget):"any budget"]; if(S.q) bits.push(`"${S.q}"`);
   $("searchsum").textContent=bits.join(" · ");
   syncControls(); $("home").hidden=true; $("app").hidden=false; try{location.hash="results"}catch(e){}
   runSearch();
