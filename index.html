@@ -181,6 +181,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const MON={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 function parseAvail(t){
   if(!t||/now/i.test(t)) return new Date(TODAY);
+  const iso=String(t).match(/^(\d{4})-(\d{2})-(\d{2})/); if(iso){const d=new Date(+iso[1],+iso[2]-1,+iso[3]);return d<TODAY?new Date(TODAY):d}
   const m=t.match(/([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})/); if(!m) return new Date(TODAY);
   const mo=MON[m[1].toLowerCase()]; let y=TODAY.getFullYear();
   const d=new Date(y,mo,+m[2]); if(d<new Date(y,TODAY.getMonth()-1,1)) d.setFullYear(y+1);
@@ -200,16 +201,19 @@ function buildProps(rows){
     for(const [name,beds,baths,sqft,rentLbl,units] of d.models){
       const nm=cleanName(name), k=nm+"|"+sqft;
       if(!merged.has(k)) merged.set(k,{code:nm,beds,baths,sqft,units:new Map()});
-      for(const [u,price,av] of units) if(u) merged.get(k).units.set(u,{unit:u,price,availText:av});
+      for(const [u,price,av,fl] of units) if(u) merged.get(k).units.set(u,{unit:u,price,availText:av,listedFloor:Number.isFinite(fl)?fl:null});
     }
     let plans=[...merged.values()];
     const allUnits=plans.flatMap(p=>[...p.units.values()]);
+    const listed=allUnits.map(u=>u.listedFloor).filter(f=>f!=null);
     const fl=allUnits.map(u=>rawFloor(u.unit)).filter(f=>f!=null);
     const trust=fl.length>0 && Math.max(...fl)<=5 && Math.min(...fl)>=1;
-    const stories=trust?Math.max(...fl):null;
+    const stories=listed.length?Math.max(...listed):(trust?Math.max(...fl):null);
     const tours=(d.tours||[]).filter(t=>t[0]);
     plans=plans.map(pl=>{
-      const units=[...pl.units.values()].map(u=>{const f=trust?rawFloor(u.unit):null;
+      const units=[...pl.units.values()].map(u=>{
+        if(u.listedFloor!=null) return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:u.listedFloor,source:"confirmed"};
+        const f=trust?rawFloor(u.unit):null;
         return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:f,source:f?"inferred":"unknown"}}).sort((a,b)=>(a.price||9e9)-(b.price||9e9));
       const token=pl.code.split(/[-\s]/)[0];
       let tour=tours.find(t=>t[1].split(/\s*-\s*/).some(x=>x.trim()===token||x.trim()===pl.code));
@@ -333,11 +337,11 @@ function renderDetail(){
       <div class="big">
         <div class="n">${m.length}</div>
         <p><b>available ${m.length===1?"unit":"units"}</b> with this floor plan that fit your criteria${pl.units.length>m.length?` (${pl.units.length} total available)`:""}.</p>
-        <div class="specs"><span>${bedLbl(pl.beds)}</span><span>${pl.baths} bath</span><span>${pl.sqft.toLocaleString()} sq ft</span>${p.stories?`<span>${p.stories}-story buildings (est.)</span>`:""}</div>
+        <div class="specs"><span>${bedLbl(pl.beds)}</span><span>${pl.baths} bath</span><span>${pl.sqft.toLocaleString()} sq ft</span>${p.stories?`<span>${p.stories}-story buildings${p.plans.some(x=>x.units.some(u=>u.source==="confirmed"))?"":" (est.)"}</span>`:""}</div>
       </div>
     </div>
     <div>
-      <div class="legend" style="margin-bottom:6px">Floor: ${chip("inferred")} read from unit number ${chip("unknown")} not in unit number, ask leasing office</div>
+      <div class="legend" style="margin-bottom:6px">Floor: ${chip("confirmed")} from the property's building map ${chip("inferred")} read from unit number ${chip("unknown")} ask leasing office</div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Unit</th><th>Floor</th><th>Accuracy</th><th>Rent</th><th>Available</th></tr></thead>
         <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td>${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td></tr>`).join("")}</tbody>
