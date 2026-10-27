@@ -31,7 +31,7 @@
   --bg:#121316; --surface:#17181c; --page:#1c1d21; --sunk:#202126; --line:#2a2b30; --line-strong:#3a3b41;
   --fg:#ededee; --muted:#a0a1a8; --faint:#76777e;
   --accent:#ededee; --accent-ink:#121316; --accent-soft:#24252a;
-  --glow:#f2a978; --glow-soft:#3a2a20; --glow-ink:#17181b;
+  --glow:#f2a978; --glow-soft:#2a221d; --glow-ink:#17181b;
   --mark:#f2a978; --mark-soft:#3a2a20; --mark-ink:#17181b;
   --ok:#5fcf98; --ok-soft:#18301f; --warn:#e3a35c; --warn-soft:#352717; --unk:#9a9ba2; --unk-soft:#26272c;
   --map-text:#a0a1a8; color-scheme:dark}}
@@ -39,7 +39,7 @@
   --bg:#121316; --surface:#17181c; --page:#1c1d21; --sunk:#202126; --line:#2a2b30; --line-strong:#3a3b41;
   --fg:#ededee; --muted:#a0a1a8; --faint:#76777e;
   --accent:#ededee; --accent-ink:#121316; --accent-soft:#24252a;
-  --glow:#f2a978; --glow-soft:#3a2a20; --glow-ink:#17181b;
+  --glow:#f2a978; --glow-soft:#2a221d; --glow-ink:#17181b;
   --mark:#f2a978; --mark-soft:#3a2a20; --mark-ink:#17181b;
   --ok:#5fcf98; --ok-soft:#18301f; --warn:#e3a35c; --warn-soft:#352717; --unk:#9a9ba2; --unk-soft:#26272c;
   --map-text:#a0a1a8; color-scheme:dark}
@@ -265,6 +265,7 @@ html{overflow-x:clip}
   .list-head{padding-inline:16px}
   /* list and map take turns; the map stays laid out so it is ready instantly */
   .right{position:fixed;left:0;right:0;top:var(--hdr);bottom:0;visibility:hidden;z-index:5}
+  body:not([data-view="map"]) .maplibregl-control-container,body:not([data-view="map"]) .maplibregl-marker{display:none}
   body[data-view="map"] .right{visibility:visible}
   body[data-view="map"] .list{display:none}
   .viewtoggle{display:block;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:550;border:0;background:#17181b;color:#fff;border-radius:999px;padding:12px 24px;font:600 15px var(--f-body);box-shadow:0 8px 24px rgba(0,0,0,.3);cursor:pointer}
@@ -281,6 +282,11 @@ html{overflow-x:clip}
   .big p{flex:1;min-width:60%}
   .specs{width:100%}
   .acc{display:none}
+  td.fl::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:2px;background:var(--faint)}
+  td.fl.confirmed::before{background:var(--ok)} td.fl.inferred::before{background:var(--warn)}
+  .specs{flex-direction:row;flex-wrap:wrap;gap:4px 0;border:0;margin:0;color:var(--muted)}
+  .specs span{border:0;padding:0}
+  .specs span+span::before{content:"\00b7";margin:0 8px}
   th,td{padding-inline:8px}
   table{font-size:13.5px}
 }
@@ -524,7 +530,9 @@ function initMap(){
 }
 function fitAll(){
   if(!MAP) return;
-  const pts=[...PROPS,...OTHERS].filter(p=>p.lat!=null).map(p=>[p.lng,p.lat]);
+  const ids=new Set(results().map(r=>r.p.id));
+  let pts=PROPS.filter(p=>ids.has(p.id)&&p.lat!=null).map(p=>[p.lng,p.lat]);
+  if(!pts.length) pts=[...PROPS,...OTHERS].filter(p=>p.lat!=null).map(p=>[p.lng,p.lat]);
   if(!pts.length) return;
   const b=pts.reduce((bb,pt)=>bb.extend(pt),new maplibregl.LngLatBounds(pts[0],pts[0]));
   MAP.fitBounds(b,{padding:{top:50,bottom:50,left:50,right:50},maxZoom:14,duration:0});
@@ -611,7 +619,7 @@ function renderDetail(){
       <div class="legend" style="margin-bottom:6px">Floor: ${chip("confirmed")} from the property's building map ${chip("inferred")} read from unit number ${chip("unknown")} ask leasing office</div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Unit</th><th>Floor</th><th class="acc">Accuracy</th><th>Rent</th><th>Available</th><th>Tour</th></tr></thead>
-        <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td class="acc">${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td><td>${u.tour?`<a href="${esc(tourUrl(u.tour))}" target="_blank" rel="noopener">3D tour</a>`:"–"}</td></tr>`).join("")}</tbody>
+        <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td class="fl ${u.source}">${floorTxt(u)}</td><td class="acc">${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td><td>${u.tour?`<a href="${esc(tourUrl(u.tour))}" target="_blank" rel="noopener">3D tour</a>`:"–"}</td></tr>`).join("")}</tbody>
       </table></div>
       <div class="legend" style="margin-top:6px">Highlighted units fit your search.</div>
     </div>
@@ -687,7 +695,9 @@ window.addEventListener("resize",()=>{if(MAP)MAP.resize()});
 
 /* phone: list and map take turns */
 const isPhone=()=>matchMedia("(max-width: 760px)").matches;
-function setView(v){ document.body.dataset.view=v; $("viewtoggle").textContent=v==="map"?"List":"Map"; if(v==="map"&&MAP) setTimeout(()=>MAP.resize(),0); }
+let NEED_FIT=true;
+function setView(v){ document.body.dataset.view=v; $("viewtoggle").textContent=v==="map"?"List":"Map";
+  if(v==="map"&&MAP) setTimeout(()=>{MAP.resize(); if(NEED_FIT&&MAP_READY){fitAll();NEED_FIT=false}},0); }
 $("viewtoggle").addEventListener("click",()=>setView(document.body.dataset.view==="map"?"list":"map"));
 
 /* ---------- Search flow: location -> criteria (on the video) -> results ---------- */
@@ -762,7 +772,7 @@ $("step2").addEventListener("submit",async e=>{
     try{ applyResults(await startSearch(S.area)); }
     catch(err){ PROPS=[];OTHERS=[]; $("list").innerHTML=`<div class="empty">The search didn't finish (${esc(err.message||"network error")}). <button class="linkbtn" id="retry">Try again</button></div>`; $("retry")&&$("retry").addEventListener("click",()=>{PENDING=null;$("step2").requestSubmit()}); return; }
   }
-  render();
+  render(); NEED_FIT=true;
   if(MAP_READY) fitAll();
 });
 $("editcrit").addEventListener("click",showCriteria);
