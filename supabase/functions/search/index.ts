@@ -137,6 +137,13 @@ async function detect(c: { place_id: string; website: string | null }) {
 }
 
 // ---------- 3. Readers ----------
+// Some SightMap maps store the plan name as packed JSON text, e.g. {"name":"A1","provider_id":"1"}.
+function planName(fp: any): string {
+  let n: any = fp.name;
+  if (typeof n === "string" && n.trim().startsWith("{")) { try { n = JSON.parse(n).name; } catch { /* keep text */ } }
+  if (n && typeof n === "object") n = n.name;
+  return String(n || fp.filter_label || "Plan").trim();
+}
 async function readSightmap(cfg: { api: string }): Promise<Model[]> {
   const r = await withTimeout(fetch(`https://sightmap.com/${cfg.api}`, { headers: { "User-Agent": UA, Accept: "application/json" } }), 10000);
   if (!r.ok) throw new Error(`SightMap HTTP ${r.status}`);
@@ -148,7 +155,7 @@ async function readSightmap(cfg: { api: string }): Promise<Model[]> {
     floorNum.set(String(f.id), Number.isFinite(n) ? n : null);
   }
   const plans = new Map<string, Model>();
-  for (const fp of d.floor_plans ?? []) plans.set(String(fp.id), [String(fp.name ?? "Plan"), +fp.bedroom_count || 0, +fp.bathroom_count || 0, 0, "", []]);
+  for (const fp of d.floor_plans ?? []) plans.set(String(fp.id), [planName(fp), +fp.bedroom_count || 0, +fp.bathroom_count || 0, 0, "", []]);
   for (const u of d.units ?? []) {
     const m = plans.get(String(u.floor_plan_id));
     if (!m) continue;
@@ -179,8 +186,8 @@ async function readLive(c: any) {
   }
 }
 
-// Saved snapshots from the first Kyle collection, matched by website domain.
-const domain = (u?: string | null) => { try { return new URL(String(u)).hostname.replace(/^www\./, ""); } catch { return ""; } };
+// Saved snapshots from the first Kyle collection, matched by website address (host + path).
+const domain = (u?: string | null) => { try { const x = new URL(String(u)); return (x.hostname.replace(/^www\./, "") + x.pathname).replace(/\/+$/, "").toLowerCase(); } catch { return ""; } };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });

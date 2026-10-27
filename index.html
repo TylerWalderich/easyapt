@@ -247,7 +247,7 @@ function rawFloor(unit){
   const n=(String(unit).split("-").pop().match(/^\d+$/)||[])[0]; if(!n) return null;
   if(n.length===3) return +n[0]; if(n.length===4) return +n[1]; return null;
 }
-const cleanName=n=>n.replace(/^\d+\./,"").trim();
+const cleanName=n=>{let s=String(n);if(s.trim().startsWith("{")){try{s=JSON.parse(s).name||s}catch(e){}}return s.replace(/^\d+\./,"").trim()};
 function buildProps(rows){
   return rows.map((row,idx)=>{
     const d=row.data, id="p"+idx;
