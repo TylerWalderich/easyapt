@@ -18,8 +18,10 @@ const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const DAY = 86400e3;
 
-type Unit = [string, number, string, number | null];
-type Model = [string, number, number, number, string, Unit[]];
+// Unit: [number, rent, available (ISO or "Now"), floor, Matterport id]
+// Model: [plan name, beds, baths, sqft, Matterport id for the plan, units, floor plan image URL]
+type Unit = [string, number, string, number | null, string | null];
+type Model = [string, number, number, number, string, Unit[], string];
 
 // ---------- helpers ----------
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -162,14 +164,16 @@ async function readSightmap(cfg: { api: string }): Promise<Model[]> {
     floorNum.set(String(f.id), Number.isFinite(n) ? n : null);
   }
   const plans = new Map<string, Model>();
-  for (const fp of d.floor_plans ?? []) plans.set(String(fp.id), [planName(fp), +fp.bedroom_count || 0, +fp.bathroom_count || 0, 0, "", []]);
+  for (const fp of d.floor_plans ?? []) plans.set(String(fp.id), [planName(fp), +fp.bedroom_count || 0, +fp.bathroom_count || 0, 0, "", [], String(fp.image_url ?? "")]);
   for (const u of d.units ?? []) {
     const m = plans.get(String(u.floor_plan_id));
     if (!m) continue;
     const area = +u.area || 0;
     if (area && (!m[3] || area < m[3])) m[3] = area;
     const avail = u.available_on && !/now/i.test(String(u.display_available_on ?? "")) ? String(u.available_on) : "Now";
-    m[5].push([String(u.unit_number ?? u.label), Math.round(+u.price || 0), avail, floorNum.get(String(u.floor_id)) ?? null]);
+    const tour = (u.outbound_links ?? []).map((l: any) => String(l?.url ?? "").match(/matterport\.com\/(?:show\/?\?m=|models\/)([A-Za-z0-9]{11})/)?.[1]).find(Boolean) ?? null;
+    if (tour && !m[4]) m[4] = tour;
+    m[5].push([String(u.unit_number ?? u.label), Math.round(+u.price || 0), avail, floorNum.get(String(u.floor_id)) ?? null, tour]);
   }
   return [...plans.values()].filter((m) => m[5].length);
 }
@@ -191,9 +195,9 @@ async function readG5(cfg: { urn: string }): Promise<Model[]> {
     const units: Unit[] = (u?.units ?? []).map((x: any) => {
       const rate = (x.prices ?? []).find((p: any) => p.priceType === "rate") ?? (x.prices ?? [])[0];
       const av = x.availabilityDate && x.availabilityDate > today ? x.availabilityDate : "Now";
-      return [String(x.displayName || x.name), Math.round(+(rate?.value ?? 0)), av, null];
+      return [String(x.displayName || x.name), Math.round(+(rate?.value ?? 0)), av, null, null];
     });
-    return [String(f.name), +f.beds || 0, +f.baths || 0, +f.sqft || 0, "", units];
+    return [String(f.name), +f.beds || 0, +f.baths || 0, +f.sqft || 0, "", units, ""];
   });
   return models.filter((m) => m[5].length);
 }

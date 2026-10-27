@@ -83,6 +83,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,.plan:focus-visibl
 .mk.dim{width:12px;height:12px;background:var(--unk);opacity:.6}
 .tour iframe{width:100%;height:100%;border:0;border-radius:10px}
 .tour.has{padding:0;position:relative}
+.tour .fpimg{max-width:100%;max-height:100%;object-fit:contain;background:#fff;border-radius:8px}
+.tour:has(.fpimg){position:relative;padding:8px}
 .tour .tour-bar{position:absolute;right:8px;bottom:8px;display:flex;gap:6px}
 .detail{z-index:500}
 
@@ -177,7 +179,7 @@ tr.match td{background:var(--accent-soft)}
   <p class="tag">Tell us what you need. We check the apartment websites live and show you the exact floor plans and units that fit.</p>
   <form class="search" id="homeform" autocomplete="off">
     <div class="fld"><label for="h-area">Area</label><input id="h-area" placeholder="City, neighborhood, or ZIP" value="Kyle, TX"></div>
-    <div class="fld"><label for="h-budget">Max rent</label><input id="h-budget" type="number" inputmode="numeric" step="25" min="500" placeholder="$ / month" value="1600"></div>
+    <div class="fld"><label for="h-budget">Max rent</label><input id="h-budget" type="number" inputmode="numeric" step="25" min="500" placeholder="No limit"></div>
     <div class="fld"><label for="h-beds">Bedrooms</label>
       <select id="h-beds"><option value="any">Any</option><option value="0">Studio</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
     <div class="fld kw"><label for="h-q">Keywords</label><input id="h-q" placeholder="Community or floor plan name"></div>
@@ -252,10 +254,14 @@ function buildProps(rows){
   return rows.map((row,idx)=>{
     const d=row.data, id="p"+idx;
     const merged=new Map();
-    for(const [name,beds,baths,sqft,rentLbl,units] of d.models){
+    const isTour=x=>typeof x==="string"&&/^[A-Za-z0-9]{11}$/.test(x);
+    for(const [name,beds,baths,sqft,slot4,units,img] of d.models){
       const nm=cleanName(name), k=nm+"|"+sqft;
-      if(!merged.has(k)) merged.set(k,{code:nm,beds,baths,sqft,units:new Map()});
-      for(const [u,price,av,fl] of units) if(u) merged.get(k).units.set(u,{unit:u,price,availText:av,listedFloor:Number.isFinite(fl)?fl:null});
+      if(!merged.has(k)) merged.set(k,{code:nm,beds,baths,sqft,units:new Map(),planTour:null,img:""});
+      const mp=merged.get(k);
+      if(isTour(slot4)&&!mp.planTour) mp.planTour=slot4;
+      if(img&&/^https:\/\//.test(img)&&!mp.img) mp.img=img;
+      for(const [u,price,av,fl,ut] of units) if(u) mp.units.set(u,{unit:u,price,availText:av,listedFloor:Number.isFinite(fl)?fl:null,tour:isTour(ut)?ut:null});
     }
     let plans=[...merged.values()];
     const allUnits=plans.flatMap(p=>[...p.units.values()]);
@@ -266,16 +272,18 @@ function buildProps(rows){
     const tours=(d.tours||[]).filter(t=>t[0]);
     plans=plans.map(pl=>{
       const units=[...pl.units.values()].map(u=>{
-        if(u.listedFloor!=null) return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:u.listedFloor,source:"confirmed"};
+        if(u.listedFloor!=null) return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:u.listedFloor,source:"confirmed",tour:u.tour};
         const f=trust?rawFloor(u.unit):null;
-        return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:f,source:f?"inferred":"unknown"}}).sort((a,b)=>(a.price||9e9)-(b.price||9e9));
+        return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:f,source:f?"inferred":"unknown",tour:u.tour}}).sort((a,b)=>(a.price||9e9)-(b.price||9e9));
       const token=pl.code.split(/[-\s]/)[0];
-      let tour=tours.find(t=>t[1].split(/\s*-\s*/).some(x=>x.trim()===token||x.trim()===pl.code));
-      if(!tour) tour=tours.find(t=>{const m=t[1].replace(/,/g,"").match(/(\d{3,4})\s*s\.?f/i);return m&&+m[1]===pl.sqft});
-      return {...pl,units,tour:tour?`https://my.matterport.com/show/?m=${tour[0]}`:null,key:id+":"+pl.code+"|"+pl.sqft};
+      let tour=tours.find(t=>t[1]&&t[1].split(/\s*-\s*/).some(x=>x.trim()===token||x.trim()===pl.code));
+      if(!tour) tour=tours.find(t=>{const m=(t[1]||"").replace(/,/g,"").match(/(\d{3,4})\s*s\.?f/i);return m&&+m[1]===pl.sqft});
+      const tid=pl.planTour||(tour&&tour[0])||(units.find(u=>u.tour)||{}).tour||null;
+      return {...pl,units,tour:tid?`https://my.matterport.com/show/?m=${tid}`:null,key:id+":"+pl.code+"|"+pl.sqft};
     }).filter(pl=>pl.units.length).sort((a,b)=>a.beds-b.beds||a.sqft-b.sqft);
     const addr=(d.addr||"").replace(/,\s*(USA|United States)$/i,"");
-    return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,updated:new Date(row.scraped_at),live:!!row.live};
+    const communityTours=tours.filter(t=>!t[1]||!plans.some(pl=>pl.tour&&pl.tour.endsWith(t[0]))).map(t=>t[0]);
+    return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,communityTours,updated:new Date(row.scraped_at),live:!!row.live};
   }).filter(p=>p.plans.length&&p.lat);
 }
 let PROPS=[];
@@ -286,7 +294,7 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={area:"Kyle, TX",beds:"any",baths:0,budget:1600,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
+const S={area:"Kyle, TX",beds:"any",baths:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
@@ -332,7 +340,11 @@ function render(){
   $("count").innerHTML=`<b>${nu}</b> units · ${np} floor plans · ${res.length} communities`;
   const L=$("list");
   const others=othersHtml();
-  if(!res.length){L.innerHTML=`<div class="empty">No posted units match. Try a higher max rent, a different bedroom count, or fewer keywords.</div>`+others;drawMap(res);return}
+  if(!res.length){
+    const all=PROPS.flatMap(p=>p.plans.flatMap(pl=>pl.units.filter(u=>u.price).map(u=>({p,pl,u}))));
+    const cheap=all.sort((a,b)=>a.u.price-b.u.price)[0];
+    const msg=PROPS.length?`${PROPS.length} ${PROPS.length===1?"complex has":"complexes have"} live units here, but none match your filters.${cheap?` Lowest rent available: ${fmt(cheap.u.price)} at ${esc(cheap.p.name)} (${bedLbl(cheap.pl.beds)}).`:""} Try raising the max rent or changing bedrooms.`:"No posted units match. Try a higher max rent, a different bedroom count, or fewer keywords.";
+    L.innerHTML=`<div class="empty">${msg}</div>`+others;drawMap(res);return}
   L.innerHTML=res.map((r,i)=>`
     <article class="prop${S.hlProp===r.p.id?" hl":""}" id="prop-${r.p.id}">
       <div class="prop-h" data-prop="${r.p.id}">
@@ -391,7 +403,9 @@ const floorTxt=u=>u.floor==null?"Unknown":ord(u.floor);
 function renderDetail(){
   const {p,pl}=findPlan(S.sel); const D=$("detail");
   const m=pl.units.filter(u=>unitMatches(u,p));
-  const tour=tourOf(pl), mine=!pl.tour&&!!TOURS[pl.key];
+  const planTour=tourOf(pl), mine=!pl.tour&&!!TOURS[pl.key];
+  const commTour=!planTour&&p.communityTours&&p.communityTours.length?`https://my.matterport.com/show/?m=${p.communityTours[0]}`:null;
+  const tour=planTour||commTour;
   D.hidden=false;
   D.innerHTML=`
     <div class="d-top">
@@ -401,7 +415,8 @@ function renderDetail(){
     <div class="d-grid">
       <div class="tour${tour?" has":""}">
         ${tour?`<iframe src="${tour}${tour.includes("?")?"&":"?"}play=1&qs=1" allow="fullscreen; xr-spatial-tracking" allowfullscreen title="3D tour of ${esc(pl.code)}"></iframe>
-          <div class="tour-bar"><a class="btn" href="${tour}" target="_blank" rel="noopener">Full screen</a>${mine?'<button class="btn ghost" id="rmtour" style="background:var(--surface)">Remove</button>':""}</div>`
+          <div class="tour-bar">${commTour?'<span class="btn ghost" style="background:var(--surface);cursor:default">Community tour</span>':""}<a class="btn" href="${tour}" target="_blank" rel="noopener">Full screen</a>${mine?'<button class="btn ghost" id="rmtour" style="background:var(--surface)">Remove</button>':""}</div>`
+        :pl.img?`<img class="fpimg" src="${esc(pl.img)}" alt="Floor plan ${esc(pl.code)}" loading="lazy"><div class="tour-bar"><span class="btn ghost" style="background:var(--surface);cursor:default">Floor plan · no 3D tour posted</span></div>`
         :`<h4>No 3D tour listed for this layout</h4>
           <p>If you have this floor plan's Matterport link, paste it here. It's saved in this browser.</p>
           <form class="tour-form" id="tourform"><input id="tourin" type="url" placeholder="https://my.matterport.com/show/?m=" aria-label="Matterport link"><button class="btn" type="submit">Save</button></form>`}
@@ -415,8 +430,8 @@ function renderDetail(){
     <div>
       <div class="legend" style="margin-bottom:6px">Floor: ${chip("confirmed")} from the property's building map ${chip("inferred")} read from unit number ${chip("unknown")} ask leasing office</div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Unit</th><th>Floor</th><th>Accuracy</th><th>Rent</th><th>Available</th></tr></thead>
-        <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td>${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>Unit</th><th>Floor</th><th>Accuracy</th><th>Rent</th><th>Available</th><th>Tour</th></tr></thead>
+        <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td>${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td><td>${u.tour?`<a href="https://my.matterport.com/show/?m=${u.tour}" target="_blank" rel="noopener">3D tour</a>`:"–"}</td></tr>`).join("")}</tbody>
       </table></div>
       <div class="legend" style="margin-top:6px">Highlighted rows fit your current criteria.</div>
     </div>
