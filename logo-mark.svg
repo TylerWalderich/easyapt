@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="EasyApt">
+  <!-- EasyApt mark: a floor plan whose load-bearing walls spell "EA".
+       E = the left wing (spine is the exterior wall, arms are interior walls).
+       A = the right unit; its open bottom is the entrance, its enclosed top room is the highlighted unit. -->
+  <!-- building footprint, open at the A's entrance -->
+  <path d="M35 56.5 H5.5 V7.5 H58.5 V56.5 H52" fill="none" stroke="#2F45C8" stroke-width="1.2" stroke-opacity=".5" stroke-linejoin="round"/>
+  <!-- the unit that matches (A's counter) -->
+  <rect x="36.8" y="13.8" width="13.4" height="12.4" fill="#F7DC4A"/>
+  <!-- walls -->
+  <g fill="none" stroke="#2F45C8" stroke-width="3.6" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M26 12 H12 V52 H26"/>
+    <path d="M12 32 H22"/>
+    <path d="M35 52 V12 H52 V52"/>
+    <path d="M35 28 H52"/>
+  </g>
+  <!-- door swing at the entrance, hinged on the A's right wall -->
+  <g fill="none" stroke="#2F45C8" stroke-width="1.2" stroke-opacity=".75">
+    <path d="M50.2 52 V45"/>
+    <path d="M43.2 52 A7 7 0 0 1 50.2 45"/>
+  </g>
+</svg>
