@@ -93,6 +93,10 @@ async function discover(area: string, key: string) {
 
 // ---------- 2. Platform detection ----------
 const PATHS = ["", "floor-plans", "floorplans/", "floorplans", "floor-plans/", "availability", "apartments/", "apartments/tx/kyle/floor-plans"];
+// Patterns allow JSON-escaped slashes (e.g. sightmap.com\/embed\/abc), common when a page injects the map with JavaScript.
+const RE_SIGHTMAP = /sightmap\.com\\?\/(?:app\\?\/)?embed\\?\/([a-z0-9]{8,14})/gi;
+const RE_TOUR = /matterport\.com\\?\/(?:show\\?\/?\?m=|models\\?\/)([A-Za-z0-9]{11})/g;
+const RE_G5 = /g5-cl-[a-z0-9]+-[a-z0-9-]+/i;
 const SIGS: [string, RegExp][] = [
   ["rentcafe", /rentcafe|securecafe/i], ["entrata", /entrata|prospectportal/i], ["realpage", /realpage|g5dxm|onesite/i],
   ["appfolio", /appfolio/i], ["resman", /myresman/i], ["knock", /knockrentals|knck\.io/i], ["funnel", /funnelleasing|nestio/i],
@@ -101,7 +105,7 @@ async function detect(c: { place_id: string; website: string | null }) {
   const upd: Record<string, unknown> = { detected_at: new Date().toISOString() };
   if (!c.website) { upd.platform = "no_website"; upd.reader = null; return await sb.from("communities").update(upd).eq("place_id", c.place_id); }
   const base = c.website.replace(/[?#].*$/, "").replace(/\/?$/, "/");
-  let blocked = false, platform = "unknown";
+  let blocked = false, platform = "unknown", g5urn = "";
   const embeds = new Set<string>(), tours = new Set<string>();
   // Same-site floor plan links found on the home page are checked too.
   const extra: string[] = [];
@@ -113,15 +117,17 @@ async function detect(c: { place_id: string; website: string | null }) {
       for (const m of text.matchAll(/href="(\/[^"#?]*(?:floor-?plans?|availability)[^"#?]*)"/gi)) if (extra.length < 3) extra.push(m[1].replace(/^\//, ""));
       for (const [name, re] of SIGS) if (platform === "unknown" && re.test(text)) platform = name;
     }
-    for (const m of text.matchAll(/sightmap\.com\/(?:app\/)?embed\/([a-z0-9]{8,14})/gi)) embeds.add(m[1]);
-    for (const m of text.matchAll(/matterport\.com\/(?:show\/?\?m=|models\/)([A-Za-z0-9]{11})/g)) tours.add(m[1]);
+    for (const m of text.matchAll(RE_SIGHTMAP)) embeds.add(m[1]);
+    for (const m of text.matchAll(RE_TOUR)) tours.add(m[1]);
+    if (!g5urn) g5urn = text.match(RE_G5)?.[0] ?? "";
     if (embeds.size) break;
   }
   if (!embeds.size && !blocked) {
     for (const p of extra) {
       const { text } = await getText(base + p, 7000);
-      for (const m of text.matchAll(/sightmap\.com\/(?:app\/)?embed\/([a-z0-9]{8,14})/gi)) embeds.add(m[1]);
-      for (const m of text.matchAll(/matterport\.com\/(?:show\/?\?m=|models\/)([A-Za-z0-9]{11})/g)) tours.add(m[1]);
+      for (const m of text.matchAll(RE_SIGHTMAP)) embeds.add(m[1]);
+      for (const m of text.matchAll(RE_TOUR)) tours.add(m[1]);
+      if (!g5urn) g5urn = text.match(RE_G5)?.[0] ?? "";
       if (embeds.size) break;
     }
   }
@@ -131,6 +137,7 @@ async function detect(c: { place_id: string; website: string | null }) {
     const api = text.match(/app\/api\/v1\/[a-z0-9]+\/sightmaps\/\d+/i)?.[0];
     if (api) { upd.reader = "sightmap"; upd.reader_config = { api }; platform = "sightmap"; break; }
   }
+  if (!upd.reader && g5urn) { upd.reader = "g5"; upd.reader_config = { urn: g5urn }; platform = "g5"; }
   upd.platform = blocked ? "blocked" : platform;
   if (tours.size) upd.tours = [...tours].slice(0, 12).map((id) => [id, ""]);
   return await sb.from("communities").update(upd).eq("place_id", c.place_id);
@@ -166,7 +173,32 @@ async function readSightmap(cfg: { api: string }): Promise<Model[]> {
   }
   return [...plans.values()].filter((m) => m[5].length);
 }
-const READERS: Record<string, (cfg: any) => Promise<Model[]>> = { sightmap: readSightmap };
+// ---------- Reader: G5 (inventory.g5marketingcloud.com; sites built by G5 / RealPage marketing) ----------
+async function g5(query: string, variables: Record<string, unknown>) {
+  const r = await withTimeout(fetch("https://inventory.g5marketingcloud.com/graphql", {
+    method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ query, variables }),
+  }), 10000);
+  const j = await r.json();
+  if (!r.ok || j.errors?.length) throw new Error(`G5: ${j.errors?.[0]?.message ?? r.status}`);
+  return j.data;
+}
+async function readG5(cfg: { urn: string }): Promise<Model[]> {
+  const d = await g5(`query($l:String!){ apartmentComplex(locationUrn:$l){ floorplans{ id name beds baths sqft totalAvailableUnits } } }`, { l: cfg.urn });
+  const fps = (d?.apartmentComplex?.floorplans ?? []).filter((f: any) => (f.totalAvailableUnits ?? 1) > 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const models = await pool(fps, 5, async (f: any): Promise<Model> => {
+    const u = await g5(`query($l:String,$f:ID){ units(locationUrn:$l,floorplanId:$f){ name displayName availabilityDate prices{ value priceType } } }`, { l: cfg.urn, f: String(f.id) });
+    const units: Unit[] = (u?.units ?? []).map((x: any) => {
+      const rate = (x.prices ?? []).find((p: any) => p.priceType === "rate") ?? (x.prices ?? [])[0];
+      const av = x.availabilityDate && x.availabilityDate > today ? x.availabilityDate : "Now";
+      return [String(x.displayName || x.name), Math.round(+(rate?.value ?? 0)), av, null];
+    });
+    return [String(f.name), +f.beds || 0, +f.baths || 0, +f.sqft || 0, "", units];
+  });
+  return models.filter((m) => m[5].length);
+}
+
+const READERS: Record<string, (cfg: any) => Promise<Model[]>> = { sightmap: readSightmap, g5: readG5 };
 
 async function readLive(c: any) {
   const src = `place:${c.place_id}`;
