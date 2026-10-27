@@ -56,7 +56,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,.plan:focus-visibl
 
 .main{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:12px;min-height:640px}
 .list{display:flex;flex-direction:column;gap:10px;max-height:760px;overflow:auto;padding-right:4px}
-.prop{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.prop{flex:none;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .prop.hl{border-color:var(--accent)}
 .prop-h{padding:10px 12px;display:flex;justify-content:space-between;gap:8px;cursor:pointer}
 .prop-h h3{margin:0;font-family:var(--f-display);font-size:16px;font-weight:700}
@@ -429,7 +429,7 @@ async function init(){
     MAP.fitBounds(PROPS.map(p=>[p.lat,p.lng]),{padding:[30,30]});
   }catch(e){$("updated").textContent="Couldn't load listings right now. Refresh to try again.";}
   render();
-  const first=results()[0]; if(first){S.sel=first.plans[0].pl.key;render()}
+  const rs=results(); const withTour=rs.flatMap(r=>r.plans).find(x=>tourOf(x.pl)); const pick=withTour||(rs[0]&&rs[0].plans[0]); if(pick){S.sel=pick.pl.key;render()}
 }
 init();
 </script>
