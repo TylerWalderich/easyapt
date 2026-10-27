@@ -189,10 +189,10 @@ tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
 
 /* ---------- Home hero: Lady Bird Lake at dusk ---------- */
 html{overflow-x:clip}
-.hero-wrap{position:relative;isolation:isolate;width:100vw;margin-left:calc(50% - 50vw);min-height:min(92vh,880px);display:flex;color:#fff;background:#1b2140 url("hero.jpg") center/cover no-repeat}
+.hero-wrap{position:relative;isolation:isolate;width:100vw;margin-left:calc(50% - 50vw);min-height:100vh;min-height:100dvh;display:flex;color:#fff;background:#1b2140 url("hero.jpg") center/cover no-repeat}
 .hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
 .hero-shade{position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(10,14,32,.58) 0%,rgba(10,14,32,.28) 45%,rgba(10,14,32,0) 75%),linear-gradient(180deg,rgba(10,14,32,.3) 0%,rgba(10,14,32,0) 25%,rgba(10,14,32,0) 70%,rgba(10,14,32,.35) 100%)}
-.hero-inner{gap:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 56px;justify-content:space-between}
+.hero-inner{gap:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 22px;justify-content:space-between}
 .hero-wrap .home-bar .logo{color:#fff}
 .hero-wrap .home-link{color:rgba(255,255,255,.85)}
 .hero-wrap .home-link:hover{color:#fff}
@@ -203,7 +203,8 @@ html{overflow-x:clip}
 .hero-wrap .more{color:rgba(255,255,255,.88)}
 .hero-wrap .more input{background:rgba(255,255,255,.92);color:#1c2421;border-color:transparent}
 .hero-wrap .home-err{color:#ffd76a}
-.home-rest{padding-top:48px}
+.hero-wrap .foot{border-top:1px solid rgba(255,255,255,.22);padding-top:14px;margin-top:48px;color:rgba(255,255,255,.75);font-size:13px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 24px}
+.hero-wrap .foot p{margin:0;max-width:70ch}
 @media (prefers-reduced-motion: reduce){.hero-video{display:none}}
 @media (max-width:860px){.how{grid-template-columns:1fr;gap:20px}.home-inner{gap:40px}.hero{padding-block:28px 0}}
 @media (max-width:520px){.search{padding-left:14px}.search .go{padding:0 18px}}
@@ -239,12 +240,11 @@ html{overflow-x:clip}
       </form>
       <div class="home-err" id="homeerr" aria-live="polite"></div>
     </div>
+      <footer class="foot">
+        <p>Some properties don't publish availability online. We still list them with a link to their website. A first search in a new area takes up to a minute.</p>
+        <p>EasyApt. Made in Kyle, Texas.</p>
+      </footer>
     </div>
-  </div>
-  <div class="home-inner home-rest">
-    
-    <p class="note">Some properties don't publish availability online. We still list them with a link to their website, so none get left out. A first search in a new area takes up to a minute.</p>
-    <footer class="foot">EasyApt. Made in Kyle, Texas.</footer>
   </div>
 </section>
 
