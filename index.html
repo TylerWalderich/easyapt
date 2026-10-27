@@ -186,6 +186,26 @@ tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
 .fresh.saved{background:var(--unk-soft);color:var(--unk)}
 .checking{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
+
+/* ---------- Home hero: Lady Bird Lake at dusk ---------- */
+.home{overflow-x:clip}
+.hero-wrap{position:relative;isolation:isolate;width:100vw;margin-left:calc(50% - 50vw);min-height:min(92vh,880px);display:flex;color:#fff;background:#1b2140 url("hero.jpg") center/cover no-repeat}
+.hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
+.hero-shade{position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(10,14,32,.72) 0%,rgba(10,14,32,.45) 45%,rgba(10,14,32,.1) 100%),linear-gradient(180deg,rgba(10,14,32,.35) 0%,rgba(10,14,32,0) 30%,rgba(10,14,32,.45) 100%)}
+.hero-inner{gap:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 56px;justify-content:space-between}
+.hero-wrap .home-bar .logo{color:#fff}
+.hero-wrap .home-link{color:rgba(255,255,255,.85)}
+.hero-wrap .home-link:hover{color:#fff}
+.hero-wrap .hero{padding-block:72px 0}
+.hero-wrap .hero::before{display:none}
+.hero-wrap .headline{color:#fff;text-shadow:0 2px 24px rgba(0,0,0,.25)}
+.hero-wrap .lede{color:rgba(255,255,255,.88)}
+.hero-wrap .search{border-color:transparent;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.hero-wrap .more{color:rgba(255,255,255,.88)}
+.hero-wrap .more input{background:rgba(255,255,255,.92);color:#1c2421;border-color:transparent}
+.hero-wrap .home-err{color:#ffd76a}
+.home-rest{padding-top:48px}
+@media (prefers-reduced-motion: reduce){.hero-video{display:none}}
 @media (max-width:860px){.how{grid-template-columns:1fr;gap:20px}.home-inner{gap:40px}.hero{padding-block:28px 0}}
 @media (max-width:760px){.search{grid-template-columns:1fr 1fr}.search .fld+.fld{border-left:0}.search .fld{border-bottom:1px solid var(--line)}.search .fld.kw{grid-column:1/-1}.search .go{grid-column:1/-1}}
 @media (max-width:900px){
@@ -202,9 +222,14 @@ tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
 <body>
 
 <section class="home" id="home">
-  <div class="home-inner">
-    <div class="home-bar"><span class="logo"><img src="logo-mark.svg" alt="" width="34" height="34">EasyApt</span><a class="home-link" href="#how">How it works</a></div>
-    <div class="hero">
+  <div class="hero-wrap">
+    <video class="hero-video" id="herovideo" autoplay muted loop playsinline preload="auto" poster="hero.jpg" aria-hidden="true">
+      <source src="hero.mp4" type="video/mp4">
+    </video>
+    <div class="hero-shade"></div>
+    <div class="home-inner hero-inner">
+      <div class="home-bar"><span class="logo"><img src="logo-mark.svg" alt="" width="34" height="34">EasyApt</span><a class="home-link" href="#how">How it works</a></div>
+      <div class="hero">
       <h2 class="headline">Find the exact apartment. The unit, the floor, the price.</h2>
       <p class="lede">Type an area. EasyApt reads each apartment community's own website right now and shows every unit that fits, down to the floor it's on.</p>
       <form class="search" id="homeform" autocomplete="off">
@@ -218,6 +243,9 @@ tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
       <div class="more"><label for="h-movein">Move in by</label><input id="h-movein" type="date"></div>
       <div class="home-err" id="homeerr" aria-live="polite"></div>
     </div>
+    </div>
+  </div>
+  <div class="home-inner home-rest">
     <ol class="how" id="how" aria-label="How it works">
       <li><h3>Search an area</h3><p>Any US city, neighborhood, or ZIP code. We find the apartment communities there.</p></li>
       <li><h3>We check their websites live</h3><p>Prices and open units come from each property's own site at the moment you search, not a listing posted weeks ago.</p></li>
@@ -589,6 +617,15 @@ $("homeform").addEventListener("submit",e=>{
   syncControls(); $("home").hidden=true; $("app").hidden=false; try{location.hash="results"}catch(e){}
   runSearch();
 });
+
+/* Hero video: only plays on the home screen; skipped for data-saver and reduced motion. */
+(function(){const v=$("herovideo");if(!v)return;
+  const save=navigator.connection&&navigator.connection.saveData;
+  const calm=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(save||calm){v.removeAttribute("autoplay");v.pause();v.preload="none";return;}
+  const sync=()=>{ if($("home").hidden) v.pause(); else v.play().catch(()=>{}); };
+  new MutationObserver(sync).observe($("home"),{attributes:true,attributeFilter:["hidden"]});
+})();
 $("newsearch").addEventListener("click",showHome);
 $("logohome").addEventListener("click",e=>{e.preventDefault();showHome()});
 window.addEventListener("hashchange",()=>{ if(location.hash!=="#results" && !$("app").hidden) showHome(); });
