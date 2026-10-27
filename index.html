@@ -7,44 +7,50 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..900&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+<meta name="description" content="Search an area and see the exact apartments available right now: every floor plan, unit, floor, price, and 3D tour, read live from each property's own website.">
 <style>
-/* Layout: tool shell — filter bar on top, results list + schematic map side by side, floor plan detail opens as a panel over the map */
+/* EasyApt identity: drafting paper and blueprints.
+   Limestone paper + green-black ink, blueprint cobalt for actions, highlighter yellow only for "this matches you".
+   Dark mode is blueprint navy. Layout: search-first home, then list + map with a floor plan sheet over the map. */
 :root{
-  --bg:#f3f5f4; --surface:#ffffff; --sunk:#e8ecea; --line:#d5dcd9;
-  --fg:#17221f; --muted:#5c6b66; --accent:#0f6a73; --accent-ink:#ffffff; --accent-soft:#d8ecec;
-  --ok:#2f7d4f; --ok-soft:#dcefe2; --warn:#a2650c; --warn-soft:#f6e9d2; --unk:#6b6f78; --unk-soft:#e6e7ea;
-  --map-land:#eef1ec; --map-road:#ffffff; --map-hwy:#e9b872; --map-text:#7a8782;
-  --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
-  --f-body:"Public Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --bg:#f4f5f1; --surface:#ffffff; --sunk:#eceee8; --line:#d6dad1; --grid:rgba(47,69,200,.07);
+  --fg:#1c2421; --muted:#5b6661; --accent:#2f45c8; --accent-ink:#ffffff; --accent-soft:#e6e9fb;
+  --mark:#f7dc4a; --mark-soft:#fdf6cf; --mark-ink:#1c2421;
+  --ok:#22744a; --ok-soft:#dcefe3; --warn:#9a5d06; --warn-soft:#f7ebd3; --unk:#6a6f78; --unk-soft:#e7e8eb;
+  --map-text:#7a8782;
+  --f-display:"Archivo",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"Source Sans 3",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"Source Sans 3",ui-sans-serif,system-ui,sans-serif;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#111816; --surface:#18211e; --sunk:#0d1311; --line:#2a3532;
-  --fg:#e3ebe8; --muted:#94a39e; --accent:#4fb3bb; --accent-ink:#0c1514; --accent-soft:#163334;
-  --ok:#6cc790; --ok-soft:#1a3326; --warn:#e2a849; --warn-soft:#3a2c14; --unk:#a5a9b2; --unk-soft:#272a30;
-  --map-land:#141d1a; --map-road:#25302c; --map-hwy:#7a5a2c; --map-text:#7e8d88; color-scheme:dark}}
+  --bg:#0f1733; --surface:#152042; --sunk:#0c1229; --line:#2a3766; --grid:rgba(150,170,255,.08);
+  --fg:#e8ecf8; --muted:#a3acc8; --accent:#93a5ff; --accent-ink:#0f1733; --accent-soft:#1e2b5c;
+  --mark:#f7dc4a; --mark-soft:#3a3618; --mark-ink:#1c2421;
+  --ok:#74d39b; --ok-soft:#173a2a; --warn:#eab25a; --warn-soft:#3b2d15; --unk:#aab0bf; --unk-soft:#252c44;
+  --map-text:#a3acc8; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#111816; --surface:#18211e; --sunk:#0d1311; --line:#2a3532;
-  --fg:#e3ebe8; --muted:#94a39e; --accent:#4fb3bb; --accent-ink:#0c1514; --accent-soft:#163334;
-  --ok:#6cc790; --ok-soft:#1a3326; --warn:#e2a849; --warn-soft:#3a2c14; --unk:#a5a9b2; --unk-soft:#272a30;
-  --map-land:#141d1a; --map-road:#25302c; --map-hwy:#7a5a2c; --map-text:#7e8d88; color-scheme:dark}
+  --bg:#0f1733; --surface:#152042; --sunk:#0c1229; --line:#2a3766; --grid:rgba(150,170,255,.08);
+  --fg:#e8ecf8; --muted:#a3acc8; --accent:#93a5ff; --accent-ink:#0f1733; --accent-soft:#1e2b5c;
+  --mark:#f7dc4a; --mark-soft:#3a3618; --mark-ink:#1c2421;
+  --ok:#74d39b; --ok-soft:#173a2a; --warn:#eab25a; --warn-soft:#3b2d15; --unk:#aab0bf; --unk-soft:#252c44;
+  --map-text:#a3acc8; color-scheme:dark}
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%}
-body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45;
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.45;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .app{max-width:1400px;margin:0 auto;padding-block:16px 24px;display:flex;flex-direction:column;gap:12px}
 header.top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px}
-h1{font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:-.01em;margin:0}
-h1 span{color:var(--accent)}
+h1{font-family:var(--f-display);font-weight:850;font-stretch:118%;font-size:24px;letter-spacing:-.01em;margin:0}
+h1 a{color:inherit;text-decoration:none}
 .sub{color:var(--muted);font-size:13px}
 .demo{font-size:12px;color:var(--muted);background:var(--sunk);border-radius:6px;padding:6px 10px}
 
 .filters{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
 .f{display:flex;flex-direction:column;gap:4px;min-width:0}
-.f label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.f label{font-size:13px;color:var(--muted);font-weight:600}
 .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
 .seg button{border:0;background:transparent;color:var(--fg);font:inherit;padding:6px 10px;cursor:pointer;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
@@ -52,34 +58,34 @@ h1 span{color:var(--accent)}
 input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 8px}
 input[type=number]{width:110px}
 button:focus-visible,input:focus-visible,select:focus-visible,.plan:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.count{margin-left:auto;font-family:var(--f-display);font-size:15px}
-.count b{color:var(--accent);font-size:20px}
+.count{margin-left:auto;font-size:15px;color:var(--muted)}
+.count b{font-family:var(--f-display);font-stretch:112%;font-weight:800;color:var(--fg);font-size:22px}
 
 .main{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:12px;min-height:640px}
 .list{display:flex;flex-direction:column;gap:10px;max-height:760px;overflow:auto;padding-right:4px}
 .prop{flex:none;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .prop.hl{border-color:var(--accent)}
 .prop-h{padding:10px 12px;display:flex;justify-content:space-between;gap:8px;cursor:pointer}
-.prop-h h3{margin:0;font-family:var(--f-display);font-size:16px;font-weight:700}
+.prop-h h3{margin:0;font-family:var(--f-display);font-stretch:108%;font-size:17px;font-weight:800}
 .prop-h .addr{color:var(--muted);font-size:12px}
 .pin-no{flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:12px;font-weight:600}
 .plan{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 12px;border-top:1px solid var(--line);cursor:pointer;background:transparent;width:100%;text-align:left;font:inherit;color:inherit;border-left:0;border-right:0;border-bottom:0}
 .plan:hover{background:var(--sunk)}
 .plan[aria-current="true"]{background:var(--accent-soft)}
-.code{font-family:var(--f-mono);font-size:12px;background:var(--sunk);border-radius:5px;padding:3px 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.code{font-family:var(--f-display);font-stretch:110%;font-weight:700;font-size:13px;background:var(--sunk);border-radius:5px;padding:3px 7px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plan .meta{font-size:13px}
 .plan .meta small{display:block;color:var(--muted);font-size:12px}
 .avail{text-align:right;font-variant-numeric:tabular-nums}
 .avail b{font-family:var(--f-display);font-size:18px;display:block;line-height:1}
 .avail small{color:var(--muted);font-size:11px}
-.tourdot{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-left:6px}
+.tourdot{display:inline-block;font-size:10px;color:var(--accent);margin-left:6px}
 .empty{color:var(--muted);padding:24px;text-align:center;background:var(--surface);border:1px dashed var(--line);border-radius:10px}
 
 .right{position:relative;background:var(--map-land);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0}
 #map{position:absolute;inset:0;z-index:1}
 .right{min-height:520px}
 .mk{width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);border:2px solid #fff;display:grid;place-items:center;font:600 12px var(--f-body);box-shadow:0 1px 4px rgba(0,0,0,.35)}
-.mk.sel{background:var(--warn)}
+.mk.sel{background:var(--mark);color:var(--mark-ink);border-color:var(--fg)}
 .mk.dim{width:12px;height:12px;background:var(--unk);opacity:.6}
 .tour iframe{width:100%;height:100%;border:0;border-radius:10px}
 .tour.has{padding:0;position:relative}
@@ -90,7 +96,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,.plan:focus-visibl
 
 .detail{position:absolute;inset:0;background:var(--surface);overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
 .d-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-.d-top h2{margin:0;font-family:var(--f-display);font-size:22px;text-wrap:balance}
+.d-top h2{margin:0;font-family:var(--f-display);font-stretch:112%;font-weight:850;font-size:24px;text-wrap:balance}
 .d-top .addr{color:var(--muted);font-size:13px}
 .close{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:7px;padding:6px 10px;cursor:pointer;font:inherit}
 .d-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px}
@@ -101,18 +107,19 @@ button:focus-visible,input:focus-visible,select:focus-visible,.plan:focus-visibl
 .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
 .tour-form{display:flex;gap:6px;width:100%;max-width:420px}
 .tour-form input{flex:1;min-width:0}
-.big{background:var(--accent-soft);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px}
-.big .n{font-family:var(--f-display);font-size:40px;font-weight:700;line-height:1;color:var(--accent)}
+.big{background:var(--mark-soft);border:1.5px solid var(--mark);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.big .n{font-family:var(--f-display);font-stretch:125%;font-size:48px;font-weight:900;line-height:1;color:var(--fg)}
 .big p{margin:0}
 .specs{display:flex;flex-wrap:wrap;gap:6px;font-size:12px}
 .specs span{background:var(--surface);border-radius:5px;padding:3px 7px}
 
 .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}
-th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--sunk);padding:7px 10px;white-space:nowrap}
+th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;background:var(--sunk);padding:7px 10px;white-space:nowrap}
 td{padding:7px 10px;border-top:1px solid var(--line);white-space:nowrap}
 td.u{font-family:var(--f-mono)}
-tr.match td{background:var(--accent-soft)}
+tr.match td{background:var(--mark-soft)}
+tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
 .chip{font-size:11px;border-radius:999px;padding:2px 8px;font-weight:600}
 .chip.confirmed{background:var(--ok-soft);color:var(--ok)}
 .chip.inferred{background:var(--warn-soft);color:var(--warn)}
@@ -138,29 +145,47 @@ tr.match td{background:var(--accent-soft)}
 .other small{display:block;color:var(--muted);font-size:12px}
 .other .btn{padding:5px 10px;font-size:12px;flex:none}
 /* ---------- Home: search-first ---------- */
-.home{min-height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:22px;padding-block:48px 64px;text-align:center}
-.home .brand{font-family:var(--f-display);font-weight:700;font-size:clamp(40px,8vw,72px);letter-spacing:-.02em;line-height:1;margin:0}
-.home .brand span{color:var(--accent)}
-.home .tag{color:var(--muted);font-size:16px;max-width:52ch;margin:0;text-wrap:balance}
-.search{width:100%;max-width:880px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;grid-template-columns:1.3fr .9fr .8fr 1.4fr auto;gap:6px;box-shadow:0 10px 30px rgba(15,40,38,.08)}
-.search .fld{display:flex;flex-direction:column;gap:2px;text-align:left;padding:6px 10px;border-radius:10px;min-width:0}
-.search .fld:focus-within{background:var(--sunk)}
-.search label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
-.search input,.search select{border:0;background:transparent;padding:2px 0;font-size:15px;width:100%;min-width:0}
+.home{min-height:100%;display:flex;flex-direction:column}
+.home-inner{width:100%;max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:56px;padding-block:20px 40px}
+.home-bar{display:flex;justify-content:space-between;align-items:center}
+.logo{font-family:var(--f-display);font-weight:900;font-stretch:125%;font-size:22px;letter-spacing:-.01em}
+.home-link{color:var(--muted);text-decoration:none;font-weight:600}
+.home-link:hover{color:var(--fg)}
+.hero{position:relative;display:flex;flex-direction:column;gap:22px;padding-block:56px 8px;isolation:isolate}
+/* drafting-paper grid behind the headline */
+.hero::before{content:"";position:absolute;inset:-20px -40px 0;z-index:-1;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;-webkit-mask-image:radial-gradient(ellipse 80% 75% at 30% 40%,#000 40%,transparent 100%);mask-image:radial-gradient(ellipse 80% 75% at 30% 40%,#000 40%,transparent 100%)}
+.headline{margin:0;font-family:var(--f-display);font-weight:900;font-stretch:125%;font-size:clamp(38px,6.6vw,86px);line-height:.96;letter-spacing:-.025em;max-width:15ch;text-wrap:balance}
+.lede{margin:0;color:var(--muted);font-size:clamp(17px,1.6vw,20px);line-height:1.5;max-width:58ch}
+.search{width:100%;max-width:980px;background:var(--surface);border:1.5px solid var(--fg);border-radius:14px;padding:8px;display:grid;grid-template-columns:1.4fr .9fr .8fr 1.3fr auto;gap:4px}
+.search .fld{display:flex;flex-direction:column;gap:2px;text-align:left;padding:8px 12px;border-radius:9px;min-width:0}
+.search .fld+.fld{border-left:1px solid var(--line);border-radius:0}
+.search .fld:focus-within{background:var(--sunk);border-radius:9px}
+.search label{font-size:13px;color:var(--muted);font-weight:600}
+.search input,.search select{border:0;background:transparent;padding:2px 0;font-size:17px;width:100%;min-width:0;color:var(--fg)}
 .search input:focus,.search select:focus{outline:none}
-.search .go{border:0;background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:0 24px;font:700 15px var(--f-body);cursor:pointer;min-height:52px}
+.search .go{border:0;background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:0 28px;font:700 17px var(--f-body);cursor:pointer;min-height:56px}
+.search .go:hover{filter:brightness(1.08)}
 .search .go:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
-.more{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;color:var(--muted);font-size:13px;align-items:center}
-.more input{padding:4px 8px}
-.home-note{color:var(--muted);font-size:12px}
-.home-err{color:var(--warn);font-size:13px;min-height:1em}
-.newsearch{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;padding:6px 12px;font:600 13px var(--f-body);cursor:pointer}
-.fresh{font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;border-radius:999px;padding:2px 7px;white-space:nowrap}
+.more{display:flex;gap:10px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:15px}
+.more input{padding:5px 8px}
+.home-err{color:var(--warn);font-size:15px;min-height:1em}
+.how{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;counter-reset:step;border-top:1.5px solid var(--fg);padding-top:24px}
+.how li{counter-increment:step;display:flex;flex-direction:column;gap:6px}
+.how li::before{content:counter(step);font-family:var(--f-display);font-weight:900;font-stretch:125%;font-size:28px;color:var(--accent);line-height:1}
+.how h3{margin:0;font-family:var(--f-display);font-weight:800;font-stretch:110%;font-size:19px}
+.how p{margin:0;color:var(--muted);line-height:1.5;max-width:36ch}
+.note{margin:0;color:var(--muted);font-size:14px;max-width:70ch}
+.foot{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
+.newsearch{border:1.5px solid var(--fg);background:var(--surface);color:var(--fg);border-radius:9px;padding:7px 14px;font:600 14px var(--f-body);cursor:pointer}
+.fresh{font-size:12px;font-weight:700;border-radius:999px;padding:1px 8px;white-space:nowrap}
 .fresh.live{background:var(--ok-soft);color:var(--ok)}
 .fresh.saved{background:var(--unk-soft);color:var(--unk)}
 .checking{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:6px;animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
-@media (max-width:760px){.search{grid-template-columns:1fr 1fr}.search .fld.kw{grid-column:1/-1}.search .go{grid-column:1/-1}}
+@media (max-width:860px){.how{grid-template-columns:1fr;gap:20px}.home-inner{gap:40px}.hero{padding-block:28px 0}}
+@media (max-width:760px){.search{grid-template-columns:1fr 1fr}.search .fld+.fld{border-left:0}.search .fld{border-bottom:1px solid var(--line)}.search .fld.kw{grid-column:1/-1}.search .go{grid-column:1/-1}}
 @media (max-width:900px){
   .main{grid-template-columns:minmax(0,1fr)}
   .right{min-height:420px;order:-1}
@@ -175,25 +200,36 @@ tr.match td{background:var(--accent-soft)}
 <body>
 
 <section class="home" id="home">
-  <h1 class="brand">Easy<span>Apt</span></h1>
-  <p class="tag">Tell us what you need. We check the apartment websites live and show you the exact floor plans and units that fit.</p>
-  <form class="search" id="homeform" autocomplete="off">
-    <div class="fld"><label for="h-area">Area</label><input id="h-area" placeholder="City, neighborhood, or ZIP" value="Kyle, TX"></div>
+  <div class="home-inner">
+    <div class="home-bar"><span class="logo">EasyApt</span><a class="home-link" href="#how">How it works</a></div>
+    <div class="hero">
+      <h2 class="headline">Find the exact apartment. The unit, the floor, the price.</h2>
+      <p class="lede">Type an area. EasyApt reads each apartment community's own website right now and shows every unit that fits, down to the floor it's on.</p>
+      <form class="search" id="homeform" autocomplete="off">
+    <div class="fld"><label for="h-area">Area</label><input id="h-area" placeholder="City, neighborhood, or ZIP code" value="Kyle, TX"></div>
     <div class="fld"><label for="h-budget">Max rent</label><input id="h-budget" type="number" inputmode="numeric" step="25" min="500" placeholder="No limit"></div>
     <div class="fld"><label for="h-beds">Bedrooms</label>
       <select id="h-beds"><option value="any">Any</option><option value="0">Studio</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
     <div class="fld kw"><label for="h-q">Keywords</label><input id="h-q" placeholder="Community or floor plan name"></div>
     <button class="go" type="submit">Search</button>
   </form>
-  <div class="more"><label for="h-movein">Move in by</label><input id="h-movein" type="date"></div>
-  <div class="home-err" id="homeerr" aria-live="polite"></div>
-  <div class="home-note">Search any US city or ZIP. The first search of a new area takes up to a minute while we find its apartment websites.</div>
+      <div class="more"><label for="h-movein">Move in by</label><input id="h-movein" type="date"></div>
+      <div class="home-err" id="homeerr" aria-live="polite"></div>
+    </div>
+    <ol class="how" id="how" aria-label="How it works">
+      <li><h3>Search an area</h3><p>Any US city, neighborhood, or ZIP code. We find the apartment communities there.</p></li>
+      <li><h3>We check their websites live</h3><p>Prices and open units come from each property's own site at the moment you search, not a listing posted weeks ago.</p></li>
+      <li><h3>Pick your unit</h3><p>Compare floor plans, see which units are open and what floor they're on, and walk through the 3D tour.</p></li>
+    </ol>
+    <p class="note">Some properties don't publish availability online. We still list them with a link to their website, so none get left out. A first search in a new area takes up to a minute.</p>
+    <footer class="foot">EasyApt. Made in Kyle, Texas.</footer>
+  </div>
 </section>
 
 <div class="app" id="app" hidden>
   <header class="top">
     <div>
-      <h1>Easy<span>Apt</span></h1>
+      <h1><a href="#" id="logohome">EasyApt</a></h1>
       <div class="sub" id="searchsum">Kyle, TX</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -433,7 +469,7 @@ function renderDetail(){
         <thead><tr><th>Unit</th><th>Floor</th><th>Accuracy</th><th>Rent</th><th>Available</th><th>Tour</th></tr></thead>
         <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td>${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td><td>${u.tour?`<a href="https://my.matterport.com/show/?m=${u.tour}" target="_blank" rel="noopener">3D tour</a>`:"–"}</td></tr>`).join("")}</tbody>
       </table></div>
-      <div class="legend" style="margin-top:6px">Highlighted rows fit your current criteria.</div>
+      <div class="legend" style="margin-top:6px">Highlighted units fit your search.</div>
     </div>
     <div class="ask">
       <h4>Ask about these units</h4>
@@ -552,6 +588,7 @@ $("homeform").addEventListener("submit",e=>{
   runSearch();
 });
 $("newsearch").addEventListener("click",showHome);
+$("logohome").addEventListener("click",e=>{e.preventDefault();showHome()});
 window.addEventListener("hashchange",()=>{ if(location.hash!=="#results" && !$("app").hidden) showHome(); });
 
 </script>
