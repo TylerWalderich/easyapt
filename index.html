@@ -535,7 +535,7 @@ function fitAll(){
   if(!pts.length) pts=[...PROPS,...OTHERS].filter(p=>p.lat!=null).map(p=>[p.lng,p.lat]);
   if(!pts.length) return;
   const b=pts.reduce((bb,pt)=>bb.extend(pt),new maplibregl.LngLatBounds(pts[0],pts[0]));
-  MAP.fitBounds(b,{padding:{top:50,bottom:50,left:50,right:50},maxZoom:14,duration:0});
+  MAP.fitBounds(b,{padding:{top:60,bottom:80,left:60,right:60},maxZoom:14,duration:0});
 }
 function drawMap(res){
   if(!MAP) return;
