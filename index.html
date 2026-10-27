@@ -160,16 +160,16 @@ tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
   background-size:28px 28px;-webkit-mask-image:radial-gradient(ellipse 80% 75% at 30% 40%,#000 40%,transparent 100%);mask-image:radial-gradient(ellipse 80% 75% at 30% 40%,#000 40%,transparent 100%)}
 .headline{margin:0;font-family:var(--f-display);font-weight:900;font-stretch:125%;font-size:clamp(38px,6.6vw,86px);line-height:.96;letter-spacing:-.025em;max-width:15ch;text-wrap:balance}
 .lede{margin:0;color:var(--muted);font-size:clamp(17px,1.6vw,20px);line-height:1.5;max-width:58ch}
-.search{width:100%;max-width:980px;background:var(--surface);border:1.5px solid var(--fg);border-radius:14px;padding:8px;display:grid;grid-template-columns:1.4fr .9fr .8fr 1.3fr auto;gap:4px}
-.search .fld{display:flex;flex-direction:column;gap:2px;text-align:left;padding:8px 12px;border-radius:9px;min-width:0}
-.search .fld+.fld{border-left:1px solid var(--line);border-radius:0}
-.search .fld:focus-within{background:var(--sunk);border-radius:9px}
-.search label{font-size:13px;color:var(--muted);font-weight:600}
-.search input,.search select{border:0;background:transparent;padding:2px 0;font-size:17px;width:100%;min-width:0;color:var(--fg)}
-.search input:focus,.search select:focus{outline:none}
-.search .go{border:0;background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:0 28px;font:700 17px var(--f-body);cursor:pointer;min-height:56px}
+.search{width:100%;max-width:720px;background:#fff;color:#1c2421;border-radius:14px;padding:8px 8px 8px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.search .pin-ico{width:22px;height:22px;flex:none;color:#5b6661}
+.search input{flex:1;min-width:0;border:0;background:transparent;color:#1c2421;font-size:19px;padding:12px 0;color-scheme:light}
+.search input::placeholder{color:#6b746f}
+.search input:focus{outline:none}
+.search:focus-within{box-shadow:0 0 0 3px rgba(255,255,255,.55),0 18px 50px rgba(0,0,0,.35)}
+.search .go{flex:none;border:0;background:#2f45c8;color:#fff;border-radius:10px;padding:0 30px;font:700 17px var(--f-body);cursor:pointer;min-height:54px}
 .search .go:hover{filter:brightness(1.08)}
-.search .go:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.search .go:focus-visible{outline:2px solid #1c2421;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .more{display:flex;gap:10px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:15px}
 .more input{padding:5px 8px}
 .home-err{color:var(--warn);font-size:15px;min-height:1em}
@@ -200,14 +200,13 @@ html{overflow-x:clip}
 .hero-wrap .hero::before{display:none}
 .hero-wrap .headline{color:#fff;text-shadow:0 2px 24px rgba(0,0,0,.25)}
 .hero-wrap .lede{color:rgba(255,255,255,.88)}
-.hero-wrap .search{border-color:transparent;box-shadow:0 18px 50px rgba(0,0,0,.35)}
 .hero-wrap .more{color:rgba(255,255,255,.88)}
 .hero-wrap .more input{background:rgba(255,255,255,.92);color:#1c2421;border-color:transparent}
 .hero-wrap .home-err{color:#ffd76a}
 .home-rest{padding-top:48px}
 @media (prefers-reduced-motion: reduce){.hero-video{display:none}}
 @media (max-width:860px){.how{grid-template-columns:1fr;gap:20px}.home-inner{gap:40px}.hero{padding-block:28px 0}}
-@media (max-width:760px){.search{grid-template-columns:1fr 1fr}.search .fld+.fld{border-left:0}.search .fld{border-bottom:1px solid var(--line)}.search .fld.kw{grid-column:1/-1}.search .go{grid-column:1/-1}}
+@media (max-width:520px){.search{padding-left:14px}.search .go{padding:0 18px}}
 @media (max-width:900px){
   .main{grid-template-columns:minmax(0,1fr)}
   .right{min-height:420px;order:-1}
@@ -228,29 +227,22 @@ html{overflow-x:clip}
     </video>
     <div class="hero-shade"></div>
     <div class="home-inner hero-inner">
-      <div class="home-bar"><span class="logo"><img src="logo-mark.svg" alt="" width="34" height="34">EasyApt</span><a class="home-link" href="#how">How it works</a></div>
+      <div class="home-bar"><span class="logo"><img src="logo-mark.svg" alt="" width="34" height="34">EasyApt</span></div>
       <div class="hero">
       <h2 class="headline">Find the exact apartment. The unit, the floor, the price.</h2>
       <p class="lede">Type an area. EasyApt reads each apartment community's own website right now and shows every unit that fits, down to the floor it's on.</p>
-      <form class="search" id="homeform" autocomplete="off">
-    <div class="fld"><label for="h-area">Area</label><input id="h-area" placeholder="City, neighborhood, or ZIP code" value="Kyle, TX"></div>
-    <div class="fld"><label for="h-budget">Max rent</label><input id="h-budget" type="number" inputmode="numeric" step="25" min="500" placeholder="No limit"></div>
-    <div class="fld"><label for="h-beds">Bedrooms</label>
-      <select id="h-beds"><option value="any">Any</option><option value="0">Studio</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></div>
-    <div class="fld kw"><label for="h-q">Keywords</label><input id="h-q" placeholder="Community or floor plan name"></div>
-    <button class="go" type="submit">Search</button>
-  </form>
-      <div class="more"><label for="h-movein">Move in by</label><input id="h-movein" type="date"></div>
+      <form class="search" id="homeform" autocomplete="off" role="search">
+        <label class="sr" for="h-area">Location</label>
+        <svg class="pin-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <input id="h-area" placeholder="Search location" enterkeyhint="search">
+        <button class="go" type="submit">Search</button>
+      </form>
       <div class="home-err" id="homeerr" aria-live="polite"></div>
     </div>
     </div>
   </div>
   <div class="home-inner home-rest">
-    <ol class="how" id="how" aria-label="How it works">
-      <li><h3>Search an area</h3><p>Any US city, neighborhood, or ZIP code. We find the apartment communities there.</p></li>
-      <li><h3>We check their websites live</h3><p>Prices and open units come from each property's own site at the moment you search, not a listing posted weeks ago.</p></li>
-      <li><h3>Pick your unit</h3><p>Compare floor plans, see which units are open and what floor they're on, and walk through the 3D tour.</p></li>
-    </ol>
+    
     <p class="note">Some properties don't publish availability online. We still list them with a link to their website, so none get left out. A first search in a new area takes up to a minute.</p>
     <footer class="foot">EasyApt. Made in Kyle, Texas.</footer>
   </div>
@@ -260,7 +252,7 @@ html{overflow-x:clip}
   <header class="top">
     <div>
       <h1><a href="#" id="logohome"><img src="logo-mark.svg" alt="" width="30" height="30">EasyApt</a></h1>
-      <div class="sub" id="searchsum">Kyle, TX</div>
+      <div class="sub" id="searchsum"></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <div class="demo" id="updated"></div>
@@ -275,7 +267,8 @@ html{overflow-x:clip}
       </div></div>
     <div class="f"><label for="baths">Min baths</label>
       <select id="baths"><option value="0">Any</option><option value="1">1+</option><option value="1.5">1.5+</option><option value="2">2+</option></select></div>
-    <div class="f"><label for="budget">Max rent ($/mo)</label><input id="budget" type="number" step="25" min="500" value="1600"></div>
+    <div class="f"><label for="minrent">Min rent</label><input id="minrent" type="number" step="25" min="0" placeholder="No min"></div>
+    <div class="f"><label for="budget">Max rent</label><input id="budget" type="number" step="25" min="0" placeholder="No max"></div>
     <div class="f"><label for="sqft">Min sq ft</label><input id="sqft" type="number" step="25" min="0" value="0"></div>
     <div class="f"><label for="movein">Move in by</label><input id="movein" type="date"></div>
     <div class="f"><label for="kw">Keywords</label><input id="kw" placeholder="Name or plan" style="width:150px"></div>
@@ -360,7 +353,7 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={area:"Kyle, TX",beds:"any",baths:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
+const S={area:"",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null};
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
@@ -370,6 +363,7 @@ const bedLbl=b=>b===0?"Studio":b+" bd";
 
 function unitMatches(u,p){
   if(u.price>S.budget) return false;
+  if(S.minRent && u.price && u.price<S.minRent) return false;
   if(S.movein && u.avail>new Date(S.movein+"T23:59")) return false;
   if(S.floor==="ground" && u.floor!==1 && u.source!=="unknown") return false;
   if(S.floor==="upper" && u.floor===1) return false;
@@ -555,6 +549,7 @@ function ask(q){
 $("beds").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.beds=b.dataset.v;[...$("beds").children].forEach(x=>x.setAttribute("aria-pressed",x===b));render()});
 $("baths").addEventListener("change",e=>{S.baths=+e.target.value;render()});
 $("budget").addEventListener("input",e=>{S.budget=+e.target.value||99999;render()});
+$("minrent").addEventListener("input",e=>{S.minRent=+e.target.value||0;render()});
 $("sqft").addEventListener("input",e=>{S.sqft=+e.target.value||0;render()});
 $("movein").addEventListener("change",e=>{S.movein=e.target.value;render()});
 $("floorpref").addEventListener("change",e=>{S.floor=e.target.value;render()});
@@ -580,7 +575,7 @@ window.addEventListener("resize",()=>MAP.invalidateSize());
 /* ---------- Search flow: home -> live check -> results ---------- */
 function syncControls(){
   [...$("beds").children].forEach(x=>x.setAttribute("aria-pressed",x.dataset.v===S.beds));
-  $("budget").value=S.budget<99999?S.budget:""; $("movein").value=S.movein; $("kw").value=S.q;
+  $("budget").value=S.budget<99999?S.budget:""; $("minrent").value=S.minRent||""; $("movein").value=S.movein; $("kw").value=S.q; $("baths").value=String(S.baths); $("sqft").value=S.sqft||""; $("floorpref").value=S.floor;
 }
 function fmtTime(d){return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
 async function runSearch(){
@@ -609,12 +604,12 @@ function showHome(){ $("app").hidden=true; $("home").hidden=false; try{location.
 $("homeform").addEventListener("submit",e=>{
   e.preventDefault();
   const area=$("h-area").value.trim();
-  if(area.length<2){ $("homeerr").textContent="Enter a city, neighborhood, or ZIP code."; return; }
-  $("homeerr").textContent=""; S.area=area;
-  S.budget=+$("h-budget").value||99999; S.beds=$("h-beds").value; S.q=$("h-q").value.trim(); S.movein=$("h-movein").value;
-  const bits=[area, S.beds==="any"?"any bedrooms":S.beds==="0"?"studio":S.beds+" bed", S.budget<99999?"up to "+fmt(S.budget):"any budget"]; if(S.q) bits.push(`"${S.q}"`);
-  $("searchsum").textContent=bits.join(" · ");
+  if(area.length<2){ $("homeerr").textContent="Type a city, neighborhood, or ZIP code to search."; $("h-area").focus(); return; }
+  $("homeerr").textContent="";
+  Object.assign(S,{area,beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null});
+  $("searchsum").textContent=area;
   syncControls(); $("home").hidden=true; $("app").hidden=false; try{location.hash="results"}catch(e){}
+  window.scrollTo(0,0);
   runSearch();
 });
 
