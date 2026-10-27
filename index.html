@@ -128,8 +128,14 @@ input[type=date]{width:150px}
 .tour.has{padding:0;position:relative}
 .tour iframe{width:100%;height:100%;border:0}
 .tour .fpimg{max-width:100%;max-height:100%;object-fit:contain;background:#fff;border-radius:8px}
-.tour:has(.fpimg){position:relative;padding:12px;background:#fff;border:1px solid var(--line)}
+.tour:has(.fpimg){position:relative;padding:44px 12px 12px;background:#fff;border:1px solid var(--line)}
+.tour:has(.fpimg) .tour-bar{left:12px;top:12px;bottom:auto;right:auto}
 .tour .tour-bar{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
+.tour .tour-top{position:absolute;left:12px;top:12px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 24px)}
+.tchip{border:0;background:rgba(23,24,27,.72);color:#fff;border-radius:999px;padding:5px 11px;font:600 12px var(--f-body);cursor:pointer;backdrop-filter:blur(6px)}
+.tchip.on{background:#fff;color:#17181b}
+.tour:has(.fpimg) .tchip.on{background:var(--page);color:var(--fg)}
+.tour .tour-bar .btn{box-shadow:0 2px 10px rgba(0,0,0,.2)}
 .tour h4{margin:0;font-size:16px;font-weight:650}
 .tour p{margin:0;color:var(--muted);font-size:13px;max-width:44ch}
 .btn{border:0;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:8px 16px;font:600 13px var(--f-body);cursor:pointer;text-decoration:none;display:inline-block}
@@ -357,20 +363,22 @@ function buildProps(rows){
     const fl=allUnits.map(u=>rawFloor(u.unit)).filter(f=>f!=null);
     const trust=fl.length>0 && Math.max(...fl)<=5 && Math.min(...fl)>=1;
     const stories=listed.length?Math.max(...listed):(trust?Math.max(...fl):null);
-    const tours=(d.tours||[]).filter(t=>t[0]);
+    const tours=(d.tours||[]).filter(t=>t&&t[0]).map(t=>[tourUrl(t[0]),String(t[1]||"")]).filter(t=>t[0]);
     plans=plans.map(pl=>{
       const units=[...pl.units.values()].map(u=>{
         if(u.listedFloor!=null) return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:u.listedFloor,source:"confirmed",tour:u.tour};
         const f=trust?rawFloor(u.unit):null;
         return {unit:u.unit,price:u.price,avail:parseAvail(u.availText),floor:f,source:f?"inferred":"unknown",tour:u.tour}}).sort((a,b)=>(a.price||9e9)-(b.price||9e9));
       const token=pl.code.split(/[-\s]/)[0];
-      let tour=tours.find(t=>t[1]&&t[1].split(/\s*-\s*/).some(x=>x.trim()===token||x.trim()===pl.code));
+      const low=s=>s.trim().toLowerCase();
+      let tour=tours.find(t=>t[1]&&(low(t[1])===low(pl.code)||t[1].split(/\s*-\s*/).some(x=>low(x)===low(token)||low(x)===low(pl.code))));
       if(!tour) tour=tours.find(t=>{const m=(t[1]||"").replace(/,/g,"").match(/(\d{3,4})\s*s\.?f/i);return m&&+m[1]===pl.sqft});
-      const tid=pl.planTour||(tour&&tour[0])||(units.find(u=>u.tour)||{}).tour||null;
-      return {...pl,units,tour:tid?`https://my.matterport.com/show/?m=${tid}`:null,key:id+":"+pl.code+"|"+pl.sqft};
+      const tid=pl.planTour?tourUrl(pl.planTour):(tour&&tour[0])||tourUrl((units.find(u=>u.tour)||{}).tour);
+      return {...pl,units,tour:tid||null,key:id+":"+pl.code+"|"+pl.sqft};
     }).filter(pl=>pl.units.length).sort((a,b)=>a.beds-b.beds||a.sqft-b.sqft);
     const addr=(d.addr||"").replace(/,\s*(USA|United States)$/i,"");
-    const communityTours=tours.filter(t=>!t[1]||!plans.some(pl=>pl.tour&&pl.tour.endsWith(t[0]))).map(t=>t[0]);
+    const used=new Set(plans.map(pl=>pl.tour).filter(Boolean));
+    const communityTours=[...new Set(tours.filter(t=>!used.has(t[0])&&(!t[1]||!plans.some(pl=>low2(pl.code)===low2(t[1])))).map(t=>t[0]))];
     return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,communityTours,updated:new Date(row.scraped_at),live:!!row.live};
   }).filter(p=>p.plans.length&&p.lat);
 }
@@ -386,6 +394,22 @@ const S={area:"",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floo
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
+const low2=s=>String(s||"").trim().toLowerCase();
+/* ---------- Virtual tours of any kind ---------- */
+// Stored tours are full URLs; older entries are bare Matterport model ids.
+function tourUrl(x){ if(!x) return null; x=String(x); if(/^[A-Za-z0-9]{11}$/.test(x)) return `https://my.matterport.com/show/?m=${x}`; return /^https:\/\//.test(x)?x:null; }
+function tourInfo(url){
+  let u; try{u=new URL(url)}catch(e){return null}
+  const h=u.hostname.replace(/^www\./,"");
+  if(h.endsWith("matterport.com")){const id=u.searchParams.get("m");return {kind:"3D tour",src:`https://my.matterport.com/show/?m=${id}&play=1&qs=1`,allow:"fullscreen; xr-spatial-tracking"}}
+  if(/youtube(-nocookie)?\.com$/.test(h)||h==="youtu.be"){const id=u.searchParams.get("v")||u.pathname.split("/").pop();return {kind:"Video tour",src:`https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1`,allow:"autoplay; fullscreen; picture-in-picture"}}
+  if(h.endsWith("vimeo.com")){const id=(u.pathname.match(/(\d{6,})/)||[])[1];return {kind:"Video tour",src:`https://player.vimeo.com/video/${id}`,allow:"autoplay; fullscreen; picture-in-picture"}}
+  if(h.includes("wistia")){const id=(u.pathname.match(/(?:iframe|medias)\/([a-z0-9]+)/i)||[])[1];return {kind:"Video tour",src:id?`https://fast.wistia.net/embed/iframe/${id}`:url,allow:"autoplay; fullscreen"}}
+  if(h.includes("realync")) return {kind:"Video tour",src:url,allow:"autoplay; fullscreen"};
+  if(h.includes("kuula")||h.includes("iguide")||h.includes("cloudpano")||h.includes("panoskin")||h.includes("ricoh360")||h.includes("3dvista")||h.includes("giraffe360")||h.includes("zillow")) return {kind:"360° tour",src:url,allow:"fullscreen; xr-spatial-tracking; gyroscope; accelerometer"};
+  return {kind:"Virtual tour",src:url,allow:"fullscreen; autoplay"};
+}
+const tourKind=url=>(tourInfo(url)||{}).kind||"Virtual tour";
 const fdate=d=>d<=TODAY?"Now":d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
 const ord=n=>n+(["th","st","nd","rd"][(n%100>10&&n%100<14)?0:Math.min(n%10,4)%4]||"th");
 const bedLbl=b=>b===0?"Studio":b+" bd";
@@ -443,7 +467,7 @@ function render(){
       ${r.plans.map(({pl,m})=>`
         <button class="plan" data-key="${esc(pl.key)}" aria-current="${S.sel===pl.key}">
           <span class="code" title="${esc(pl.code)}">${esc(pl.code)}</span>
-          <span class="meta">${bedLbl(pl.beds)}, ${pl.baths} ba<small>${pl.sqft.toLocaleString()} sq ft${tourOf(pl)?'<span class="tourdot">3D tour</span>':""}</small></span>
+          <span class="meta">${bedLbl(pl.beds)}, ${pl.baths} ba<small>${pl.sqft.toLocaleString()} sq ft${tourOf(pl)?`<span class="tourdot">${tourKind(tourOf(pl))}</span>`:""}</small></span>
           <span class="avail"><b>${m.some(u=>u.price)?fmt(Math.min(...m.filter(u=>u.price).map(u=>u.price))):"Call"}</b><small>${m.length} open</small></span>
         </button>`).join("")}
     </article>`).join("")+others;
@@ -492,8 +516,11 @@ function renderDetail(){
   const {p,pl}=findPlan(S.sel); const D=$("detail");
   const m=pl.units.filter(u=>unitMatches(u,p));
   const planTour=tourOf(pl), mine=!pl.tour&&!!TOURS[pl.key];
-  const commTour=!planTour&&p.communityTours&&p.communityTours.length?`https://my.matterport.com/show/?m=${p.communityTours[0]}`:null;
-  const tour=planTour||commTour;
+  const allTours=[...new Set([planTour,...(p.communityTours||[])].filter(Boolean))];
+  if(S.tourFor!==S.sel){S.tourFor=S.sel;S.tourIdx=0}
+  const tour=allTours[Math.min(S.tourIdx||0,allTours.length-1)]||null;
+  const info=tour?tourInfo(tour):null;
+  const isComm=tour&&tour!==planTour;
   D.hidden=false;
   D.innerHTML=`
     <div class="d-top">
@@ -502,9 +529,10 @@ function renderDetail(){
     </div>
     <div class="d-grid">
       <div class="tour${tour?" has":""}">
-        ${tour?`<iframe src="${tour}${tour.includes("?")?"&":"?"}play=1&qs=1" allow="fullscreen; xr-spatial-tracking" allowfullscreen title="3D tour of ${esc(pl.code)}"></iframe>
-          <div class="tour-bar">${commTour?'<span class="btn ghost" style="background:var(--surface);cursor:default">Community tour</span>':""}<a class="btn" href="${tour}" target="_blank" rel="noopener">Full screen</a>${mine?'<button class="btn ghost" id="rmtour" style="background:var(--surface)">Remove</button>':""}</div>`
-        :pl.img?`<img class="fpimg" src="${esc(pl.img)}" alt="Floor plan ${esc(pl.code)}" loading="lazy"><div class="tour-bar"><span class="btn ghost" style="background:var(--surface);cursor:default">Floor plan · no 3D tour posted</span></div>`
+        ${tour&&info?`<iframe src="${esc(info.src)}" allow="${info.allow}" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" title="${esc(info.kind)} of ${esc(pl.code)}"></iframe>
+          <div class="tour-top">${allTours.length>1?allTours.map((t,i)=>`<button class="tchip${t===tour?" on":""}" data-tour="${i}">${t===planTour?esc(pl.code)+" "+tourKind(t).toLowerCase():tourKind(t)+(allTours.length>2?" "+(i+(planTour?0:1)):"")}</button>`).join(""):`<span class="tchip on">${isComm?"Community "+info.kind.toLowerCase():info.kind}</span>`}</div>
+          <div class="tour-bar"><a class="btn" href="${esc(tour)}" target="_blank" rel="noopener">Open tour</a>${mine?'<button class="btn ghost" id="rmtour">Remove</button>':""}</div>`
+        :pl.img?`<img class="fpimg" src="${esc(pl.img)}" alt="Floor plan ${esc(pl.code)}" loading="lazy"><div class="tour-bar"><span class="tchip on">Floor plan, no tour posted</span></div>`
         :`<h4>No 3D tour listed for this layout</h4>
           <p>If you have this floor plan's Matterport link, paste it here. It's saved in this browser.</p>
           <form class="tour-form" id="tourform"><input id="tourin" type="url" placeholder="https://my.matterport.com/show/?m=" aria-label="Matterport link"><button class="btn" type="submit">Save</button></form>`}
@@ -519,7 +547,7 @@ function renderDetail(){
       <div class="legend" style="margin-bottom:6px">Floor: ${chip("confirmed")} from the property's building map ${chip("inferred")} read from unit number ${chip("unknown")} ask leasing office</div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Unit</th><th>Floor</th><th>Accuracy</th><th>Rent</th><th>Available</th><th>Tour</th></tr></thead>
-        <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td>${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td><td>${u.tour?`<a href="https://my.matterport.com/show/?m=${u.tour}" target="_blank" rel="noopener">3D tour</a>`:"–"}</td></tr>`).join("")}</tbody>
+        <tbody>${pl.units.map(u=>`<tr class="${unitMatches(u,p)?"match":""}"><td class="u">${esc(u.unit)}</td><td>${floorTxt(u)}</td><td>${chip(u.source)}</td><td>${fmt(u.price)}</td><td>${fdate(u.avail)}</td><td>${u.tour?`<a href="${esc(tourUrl(u.tour))}" target="_blank" rel="noopener">3D tour</a>`:"–"}</td></tr>`).join("")}</tbody>
       </table></div>
       <div class="legend" style="margin-top:6px">Highlighted units fit your search.</div>
     </div>
@@ -591,12 +619,13 @@ $("list").addEventListener("click",e=>{
 $("detail").addEventListener("click",e=>{
   if(e.target.id==="close"){S.sel=null;$("detail").hidden=true;render();return}
   if(e.target.id==="rmtour"){delete TOURS[S.sel];saveTours();render();return}
+  const tb=e.target.closest("[data-tour]");if(tb){S.tourIdx=+tb.dataset.tour;renderDetail();return}
   const c=e.target.closest("[data-q]");if(c)ask(c.dataset.q);
 });
 $("detail").addEventListener("submit",e=>{
   e.preventDefault();
   if(e.target.id==="askform"){const v=$("askin").value.trim();if(v){ask(v);$("askin").value=""}}
-  if(e.target.id==="tourform"){const v=$("tourin").value.trim();if(/^https:\/\/(my\.)?matterport\.com\//.test(v)){TOURS[S.sel]=v;saveTours();render()}else{$("tourin").setCustomValidity("Use a my.matterport.com link");$("tourin").reportValidity();setTimeout(()=>$("tourin").setCustomValidity(""),2000)}}
+  if(e.target.id==="tourform"){const v=$("tourin").value.trim();if(/^https:\/\//.test(v)&&tourInfo(v)){TOURS[S.sel]=v;saveTours();render()}else{$("tourin").setCustomValidity("Paste a full https:// link to the tour");$("tourin").reportValidity();setTimeout(()=>$("tourin").setCustomValidity(""),2000)}}
 });
 window.addEventListener("resize",()=>MAP.invalidateSize());
 

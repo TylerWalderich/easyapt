@@ -97,18 +97,67 @@ async function discover(area: string, key: string) {
 const PATHS = ["", "floor-plans", "floorplans/", "floorplans", "floor-plans/", "availability", "apartments/", "apartments/tx/kyle/floor-plans"];
 // Patterns allow JSON-escaped slashes (e.g. sightmap.com\/embed\/abc), common when a page injects the map with JavaScript.
 const RE_SIGHTMAP = /sightmap\.com\\?\/(?:app\\?\/)?embed\\?\/([a-z0-9]{8,14})/gi;
+// Virtual tour providers we recognise and can embed. Patterns tolerate JSON-escaped slashes.
+const TOUR_HOSTS = [
+  "my\\.matterport\\.com", "matterport\\.com", "youtube\\.com", "youtu\\.be", "youtube-nocookie\\.com", "player\\.vimeo\\.com", "vimeo\\.com",
+  "api\\.realync\\.com", "realync\\.com", "kuula\\.co", "youriguide\\.com", "iguide\\.[a-z]+", "zillow\\.com\\\\?/view-3d-home",
+  "fast\\.wistia\\.(?:net|com)", "[a-z0-9-]+\\.wistia\\.com", "app\\.cloudpano\\.com", "[a-z0-9-]+\\.panoskin\\.com", "peek\\.us",
+  "tours\\.ricoh360\\.com", "theasys\\.io", "my\\.3dvista\\.com", "[a-z0-9-]+\\.3dvista\\.com", "tourbuilder\\.[a-z]+", "eyespy360\\.com",
+  "tour\\.giraffe360\\.com", "[a-z0-9-]+\\.giraffe360\\.com", "momento360\\.com", "roundme\\.com", "panoee\\.com", "virtualtourcafe\\.com",
+  "cupix\\.works", "[a-z0-9-]+\\.cupix\\.works", "teliportme\\.com", "tourwizard\\.net", "spinattic\\.com", "bnbvr\\.com",
+];
+const RE_TOURURL = new RegExp(`https?:\\\\?/\\\\?/(?:www\\.)?(?:${TOUR_HOSTS.join("|")})[^"'\\s<>\\\\]*(?:\\\\/[^"'\\s<>\\\\]*)*`, "gi");
+function cleanTourUrl(raw: string): string | null {
+  let u = raw.replace(/\\\//g, "/").replace(/&amp;/g, "&").replace(/[),.;]+$/, "");
+  try {
+    const x = new URL(u);
+    const h = x.hostname.replace(/^www\./, "");
+    if (/(^|\.)youtube(-nocookie)?\.com$/.test(h)) {
+      const id = x.searchParams.get("v") || x.pathname.match(/\/(?:embed|shorts|live)\/([\w-]{11})/)?.[1];
+      return id ? `https://www.youtube.com/watch?v=${id}` : null;
+    }
+    if (h === "youtu.be") { const id = x.pathname.slice(1, 12); return id ? `https://www.youtube.com/watch?v=${id}` : null; }
+    if (h.endsWith("vimeo.com")) { const id = x.pathname.match(/(\d{6,})/)?.[1]; return id ? `https://vimeo.com/${id}` : null; }
+    if (h.endsWith("matterport.com")) { const id = x.searchParams.get("m") || x.pathname.match(/models\/([A-Za-z0-9]{11})/)?.[1]; return id ? `https://my.matterport.com/show/?m=${id}` : null; }
+    if (x.pathname.length < 3 && !x.search) return null; // a bare homepage link, not a tour
+    return x.toString();
+  } catch { return null; }
+}
 const RE_TOUR = /matterport\.com\\?\/(?:show\\?\/?\?m=|models\\?\/)([A-Za-z0-9]{11})/g;
 const RE_G5 = /g5-cl-[a-z0-9]+-[a-z0-9-]+/i;
 const SIGS: [string, RegExp][] = [
   ["rentcafe", /rentcafe|securecafe/i], ["entrata", /entrata|prospectportal/i], ["realpage", /realpage|g5dxm|onesite/i],
   ["appfolio", /appfolio/i], ["resman", /myresman/i], ["knock", /knockrentals|knck\.io/i], ["funnel", /funnelleasing|nestio/i],
 ];
+// Collect tours from one page: structured data (schema.org FloorPlan objects carry the plan name)
+// first, then any other tour links on the page as community-wide tours.
+function collectTours(html: string, into: Map<string, string>) {
+  for (const m of html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    let data: unknown;
+    try { data = JSON.parse(m[1]); } catch { continue; }
+    const walk = (node: any, plan: string) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) { node.forEach((n) => walk(n, plan)); return; }
+      const t = String(node["@type"] ?? "");
+      const isPlan = /FloorPlan/i.test(t) || (node.name && (node.numberOfBedrooms !== undefined || node.floorSize));
+      const label = isPlan && node.name ? String(node.name).trim() : plan;
+      for (const v of Object.values(node)) {
+        if (typeof v === "string") {
+          for (const u of v.matchAll(RE_TOURURL)) { const clean = cleanTourUrl(u[0]); if (clean && (!into.has(clean) || !into.get(clean))) into.set(clean, label); }
+        } else walk(v, label);
+      }
+    };
+    walk(data, "");
+  }
+  for (const u of html.matchAll(RE_TOURURL)) { const clean = cleanTourUrl(u[0]); if (clean && !into.has(clean)) into.set(clean, ""); }
+}
+
 async function detect(c: { place_id: string; website: string | null }) {
   const upd: Record<string, unknown> = { detected_at: new Date().toISOString() };
   if (!c.website) { upd.platform = "no_website"; upd.reader = null; return await sb.from("communities").update(upd).eq("place_id", c.place_id); }
   const base = c.website.replace(/[?#].*$/, "").replace(/\/?$/, "/");
   let blocked = false, platform = "unknown", g5urn = "";
-  const embeds = new Set<string>(), tours = new Set<string>();
+  const embeds = new Set<string>(), tours = new Map<string, string>();
   // Same-site floor plan links found on the home page are checked too.
   const extra: string[] = [];
   for (const p of PATHS) {
@@ -120,17 +169,17 @@ async function detect(c: { place_id: string; website: string | null }) {
       for (const [name, re] of SIGS) if (platform === "unknown" && re.test(text)) platform = name;
     }
     for (const m of text.matchAll(RE_SIGHTMAP)) embeds.add(m[1]);
-    for (const m of text.matchAll(RE_TOUR)) tours.add(m[1]);
+    collectTours(text, tours);
     if (!g5urn) g5urn = text.match(RE_G5)?.[0] ?? "";
-    if (embeds.size) break;
+    if (embeds.size && tours.size) break;
   }
-  if (!embeds.size && !blocked) {
+  if ((!embeds.size || !tours.size) && !blocked) {
     for (const p of extra) {
       const { text } = await getText(base + p, 7000);
       for (const m of text.matchAll(RE_SIGHTMAP)) embeds.add(m[1]);
-      for (const m of text.matchAll(RE_TOUR)) tours.add(m[1]);
+      collectTours(text, tours);
       if (!g5urn) g5urn = text.match(RE_G5)?.[0] ?? "";
-      if (embeds.size) break;
+      if (embeds.size && tours.size) break;
     }
   }
   upd.reader = null; upd.reader_config = null;
@@ -141,7 +190,8 @@ async function detect(c: { place_id: string; website: string | null }) {
   }
   if (!upd.reader && g5urn) { upd.reader = "g5"; upd.reader_config = { urn: g5urn }; platform = "g5"; }
   upd.platform = blocked ? "blocked" : platform;
-  if (tours.size) upd.tours = [...tours].slice(0, 12).map((id) => [id, ""]);
+  // Tours are stored as [url, floor plan name or ""]; plan-specific tours first.
+  upd.tours = [...tours].sort((a, b) => (b[1] ? 1 : 0) - (a[1] ? 1 : 0)).slice(0, 40);
   return await sb.from("communities").update(upd).eq("place_id", c.place_id);
 }
 
