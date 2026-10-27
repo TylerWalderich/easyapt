@@ -40,6 +40,7 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%}
+body{margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.45;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .app{max-width:1400px;margin:0 auto;padding-block:16px 24px;display:flex;flex-direction:column;gap:12px}
@@ -191,12 +192,12 @@ tr.match td.u{box-shadow:inset 4px 0 0 var(--mark)}
 html{overflow-x:clip}
 .hero-wrap{position:relative;isolation:isolate;width:100vw;margin-left:calc(50% - 50vw);min-height:100vh;min-height:100dvh;display:flex;color:#fff;background:#1b2140 url("hero.jpg") center/cover no-repeat}
 .hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
-.hero-shade{position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(10,14,32,.58) 0%,rgba(10,14,32,.28) 45%,rgba(10,14,32,0) 75%),linear-gradient(180deg,rgba(10,14,32,.3) 0%,rgba(10,14,32,0) 25%,rgba(10,14,32,0) 70%,rgba(10,14,32,.35) 100%)}
+.hero-shade{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(10,14,32,.38) 0%,rgba(10,14,32,0) 22%,rgba(10,14,32,0) 75%,rgba(10,14,32,.25) 100%)}
 .hero-inner{gap:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 22px;justify-content:space-between}
 .hero-wrap .home-bar .logo{color:#fff}
 .hero-wrap .home-link{color:rgba(255,255,255,.85)}
 .hero-wrap .home-link:hover{color:#fff}
-.hero-wrap .hero{padding-block:72px 0}
+.hero-wrap .hero{padding-block:0;flex:1;justify-content:center;align-items:center;padding-bottom:9vh}
 .hero-wrap .hero::before{display:none}
 .hero-wrap .headline{color:#fff;text-shadow:0 2px 24px rgba(0,0,0,.25)}
 .hero-wrap .lede{color:rgba(255,255,255,.88)}
@@ -230,20 +231,15 @@ html{overflow-x:clip}
     <div class="home-inner hero-inner">
       <div class="home-bar"><span class="logo"><img src="logo-mark.svg" alt="" width="34" height="34">EasyApt</span></div>
       <div class="hero">
-      <h2 class="headline">Find the exact apartment. The unit, the floor, the price.</h2>
-      <p class="lede">Type an area. EasyApt reads each apartment community's own website right now and shows every unit that fits, down to the floor it's on.</p>
+      <h2 class="sr">Search apartments</h2>
       <form class="search" id="homeform" autocomplete="off" role="search">
         <label class="sr" for="h-area">Location</label>
         <svg class="pin-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-        <input id="h-area" placeholder="Search location" enterkeyhint="search">
+        <input id="h-area" placeholder="Search location" enterkeyhint="search" autofocus>
         <button class="go" type="submit">Search</button>
       </form>
       <div class="home-err" id="homeerr" aria-live="polite"></div>
     </div>
-      <footer class="foot">
-        <p>Some properties don't publish availability online. We still list them with a link to their website. A first search in a new area takes up to a minute.</p>
-        <p>EasyApt. Made in Kyle, Texas.</p>
-      </footer>
     </div>
   </div>
 </section>
