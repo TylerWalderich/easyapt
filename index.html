@@ -378,7 +378,7 @@ function buildProps(rows){
     }).filter(pl=>pl.units.length).sort((a,b)=>a.beds-b.beds||a.sqft-b.sqft);
     const addr=(d.addr||"").replace(/,\s*(USA|United States)$/i,"");
     const used=new Set(plans.map(pl=>pl.tour).filter(Boolean));
-    const communityTours=[...new Set(tours.filter(t=>!used.has(t[0])&&(!t[1]||!plans.some(pl=>low2(pl.code)===low2(t[1])))).map(t=>t[0]))];
+    const communityTours=[...new Set(tours.filter(t=>!used.has(t[0])&&!t[1]).map(t=>t[0]))]; // tours labeled for a specific plan stay with that plan
     return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,communityTours,updated:new Date(row.scraped_at),live:!!row.live};
   }).filter(p=>p.plans.length&&p.lat);
 }
