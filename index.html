@@ -212,6 +212,18 @@ tr.match td.u{box-shadow:inset 3px 0 0 var(--glow)}
 .cr-back:hover{color:#17181b}
 .criteria h2{margin:6px 0 4px;font-size:clamp(22px,3.4vw,28px);font-weight:700;letter-spacing:-.02em;line-height:1.15}
 .cr-hint{margin:0 0 18px;color:#6c6d72;font-size:14px}
+.cr-tip{font-size:12.5px;color:#6c6d72;line-height:1.4}
+.why{display:inline-block;margin-top:4px;font-size:12px;font-weight:600;color:#7a3d12;background:var(--glow-soft);border-radius:999px;padding:2px 8px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .why{color:#f6c29c}}
+:root[data-theme="dark"] .why{color:#f6c29c}
+.kindtag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-right:6px}
+.feat{border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:8px}
+.feat h4{margin:0;font-size:15px;font-weight:650}
+.feat p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.ftags{display:flex;flex-wrap:wrap;gap:6px}
+.ftags span{font-size:12.5px;border:1px solid var(--line-strong);border-radius:999px;padding:3px 10px}
+.ftags span.hit{background:var(--glow-soft);border-color:var(--glow)}
+.reading{font-size:13px;color:var(--muted);display:flex;align-items:center;margin-top:4px}
 .cr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}
 .cr-f{display:flex;flex-direction:column;gap:7px;min-width:0}
 .cr-f.wide{grid-column:1/-1}
@@ -320,6 +332,8 @@ html{overflow-x:clip}
           <h2>Next, what are you looking for?</h2>
           <p class="cr-hint">Everything here is optional. Leave anything blank to see it all.</p>
           <div class="cr-grid">
+            <div class="cr-f wide"><span class="cr-l" id="l-kind">Rental type</span>
+              <div class="pills" data-name="kind" role="group" aria-labelledby="l-kind"><button type="button" data-v="any">Any</button><button type="button" data-v="apartment">Apartment</button><button type="button" data-v="house">House</button><button type="button" data-v="townhome">Townhome</button></div></div>
             <div class="cr-f"><span class="cr-l" id="l-beds">Bedrooms</span>
               <div class="pills" data-name="beds" role="group" aria-labelledby="l-beds"><button type="button" data-v="any">Any</button><button type="button" data-v="0">Studio</button><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3+</button></div></div>
             <div class="cr-f"><span class="cr-l" id="l-baths">Bathrooms</span>
@@ -330,7 +344,8 @@ html{overflow-x:clip}
             <div class="cr-f"><label class="cr-l" for="c-sqft">Minimum size (sq ft)</label><input id="c-sqft" type="number" inputmode="numeric" min="0" step="25" placeholder="Any size"></div>
             <div class="cr-f"><span class="cr-l" id="l-floor">Floor</span>
               <div class="pills" data-name="floor" role="group" aria-labelledby="l-floor"><button type="button" data-v="any">Any</button><button type="button" data-v="ground">Ground</button><button type="button" data-v="upper">Upper</button><button type="button" data-v="top">Top</button></div></div>
-            <div class="cr-f wide"><label class="cr-l" for="c-q">Keywords</label><input id="c-q" placeholder="Community or floor plan name"></div>
+            <div class="cr-f wide"><label class="cr-l" for="c-q">Must-haves</label><input id="c-q" maxlength="100" placeholder="Try: big terrace, garage, home office, fenced yard">
+              <span class="cr-tip">We read every floor plan and listing photo, so this finds features even when the website never mentions them.</span></div>
           </div>
           <div class="cr-actions"><button type="submit" class="go" id="showapts">Show apartments</button><span class="cr-status" id="cr-status" aria-live="polite"></span></div>
         </form>
@@ -388,10 +403,11 @@ function buildProps(rows){
     const d=row.data, id="p"+idx;
     const merged=new Map();
     const isTour=x=>typeof x==="string"&&/^[A-Za-z0-9]{11}$/.test(x);
-    for(const [name,beds,baths,sqft,slot4,units,img] of d.models){
+    for(const [name,beds,baths,sqft,slot4,units,img,fk] of d.models){
       const nm=cleanName(name), k=nm+"|"+sqft;
-      if(!merged.has(k)) merged.set(k,{code:nm,beds,baths,sqft,units:new Map(),planTour:null,img:""});
+      if(!merged.has(k)) merged.set(k,{code:nm,beds,baths,sqft,units:new Map(),planTour:null,img:"",fk:fk||""});
       const mp=merged.get(k);
+      if(fk&&!mp.fk) mp.fk=fk;
       if(isTour(slot4)&&!mp.planTour) mp.planTour=slot4;
       if(img&&/^https:\/\//.test(img)&&!mp.img) mp.img=img;
       for(const [u,price,av,fl,ut] of units) if(u) mp.units.set(u,{unit:u,price,availText:av,listedFloor:Number.isFinite(fl)?fl:null,tour:isTour(ut)?ut:null});
@@ -418,7 +434,8 @@ function buildProps(rows){
     const addr=(d.addr||"").replace(/,\s*(USA|United States)$/i,"");
     const used=new Set(plans.map(pl=>pl.tour).filter(Boolean));
     const communityTours=[...new Set(tours.filter(t=>!used.has(t[0])&&!t[1]).map(t=>t[0]))]; // tours labeled for a specific plan stay with that plan
-    return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,communityTours,updated:new Date(row.scraped_at),live:!!row.live};
+    return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,communityTours,updated:new Date(row.scraped_at),live:!!row.live,
+      kind:d.kind||"apartment",listing:!!d.listing,manager:d.manager||"",desc:d.desc||""};
   }).filter(p=>p.plans.length&&p.lat);
 }
 let PROPS=[];
@@ -429,7 +446,9 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={area:"",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null,tourIdx:0};
+const S={area:"",kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null,tourIdx:0};
+const KIND_LBL={apartment:"Apartment",house:"House",townhome:"Townhome"};
+const KIND_PL={apartment:"Apartments",house:"Rental homes",townhome:"Townhomes"};
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
@@ -468,56 +487,149 @@ function planMatches(pl){
   if(pl.sqft<S.sqft) return false;
   return true;
 }
+/* ---------- Smart must-haves: AI-read floor plan features ---------- */
+// FEAT[key] = {outdoor:{type,size,sqft,count}, tags:[...], summary}; filled from the plan_features table.
+const FEAT={};
+let QP=null;            // parsed must-haves: {groups:[{label,outdoor_types,min_size,any_tags}], kinds:[], text:[]}
+let QP_FOR="";
+const SIZE_RANK={none:0,small:1,medium:2,large:3};
+const TAG_LBL={walk_in_closet:"Walk-in closet",multiple_closets:"Extra closets",kitchen_island:"Kitchen island",breakfast_bar:"Breakfast bar",pantry:"Pantry",dining_room:"Dining room",open_concept:"Open layout",den_office:"Den / office",flex_room:"Flex room",loft:"Loft",two_story:"Two stories",garage:"Garage",attached_garage:"Attached garage",carport:"Carport",storage_room:"Storage room",washer_dryer:"Washer & dryer",laundry_room:"Laundry room",fireplace:"Fireplace",double_vanity:"Double vanity",soaking_tub:"Soaking tub",separate_tub_shower:"Separate tub & shower",walk_in_shower:"Walk-in shower",ensuite_bath:"En-suite bath",split_bedrooms:"Split bedrooms",half_bath:"Half bath",corner_unit:"Corner unit",large_windows:"Large windows",bay_window:"Bay window",vaulted_ceilings:"Vaulted ceilings",private_entry:"Private entry",yard:"Yard",fenced_yard:"Fenced yard",pool:"Pool",accessible:"Accessible"};
+const OUT_LBL={balcony:"balcony",patio:"patio",terrace:"terrace",rooftop:"rooftop deck",yard:"yard",courtyard:"courtyard",porch:"porch"};
+function outdoorText(o){ if(!o||o.type==="none") return ""; const sz=o.size&&o.size!=="none"?o.size[0].toUpperCase()+o.size.slice(1)+" ":""; return `${sz}${OUT_LBL[o.type]||o.type}${o.sqft?` (about ${o.sqft} sq ft)`:""}`; }
+// Offline fallback when the AI reader can't be reached: a few common words.
+function localParse(q){
+  const t=q.toLowerCase(), g=[], kinds=[];
+  const big=/big|large|huge|spacious|oversized/.test(t);
+  if(/terrace|balcon|patio|outdoor|deck/.test(t)) g.push({label:(big?"Large ":"")+"outdoor space",outdoor_types:["terrace","balcony","patio","rooftop","courtyard"],min_size:big?"large":/terrace/.test(t)?"medium":"small",any_tags:[]});
+  if(/yard|dog/.test(t)) g.push({label:"Yard",outdoor_types:["yard"],min_size:null,any_tags:["yard","fenced_yard"]});
+  if(/garage/.test(t)) g.push({label:"Garage",outdoor_types:[],min_size:null,any_tags:["garage","attached_garage"]});
+  if(/office|den|work from home|wfh|study/.test(t)) g.push({label:"Home office",outdoor_types:[],min_size:null,any_tags:["den_office","flex_room","loft"]});
+  if(/closet/.test(t)) g.push({label:"Walk-in closet",outdoor_types:[],min_size:null,any_tags:["walk_in_closet","multiple_closets"]});
+  if(/island/.test(t)) g.push({label:"Kitchen island",outdoor_types:[],min_size:null,any_tags:["kitchen_island","breakfast_bar"]});
+  if(/washer|dryer|laundry/.test(t)) g.push({label:"Washer & dryer",outdoor_types:[],min_size:null,any_tags:["washer_dryer","laundry_room"]});
+  if(/fireplace/.test(t)) g.push({label:"Fireplace",outdoor_types:[],min_size:null,any_tags:["fireplace"]});
+  if(/house|home(?!\s*office)/.test(t)) kinds.push("house"); if(/townhome|townhouse/.test(t)) kinds.push("townhome"); if(/apartment|apt/.test(t)) kinds.push("apartment");
+  return {groups:g,kinds,text:g.length||kinds.length?[]:t.split(/\s+/).filter(w=>w.length>2)};
+}
+async function parseMust(q){
+  if(!q){QP=null;QP_FOR="";return}
+  if(QP_FOR===q&&QP) return;
+  try{
+    const r=await fetch(`${SB_URL}/functions/v1/smart`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({action:"parse",q})});
+    const j=await r.json(); if(!r.ok||j.error) throw new Error(j.error||r.status);
+    QP=j;
+  }catch(e){ QP=localParse(q); }
+  QP_FOR=q;
+}
+function groupHit(g,f){
+  if(!f) return null;
+  const tags=f.tags||[], o=f.outdoor||{};
+  const tag=(g.any_tags||[]).find(t=>tags.includes(t));
+  if(tag) return TAG_LBL[tag]||tag;
+  if((g.outdoor_types||[]).includes(o.type) && SIZE_RANK[o.size||"none"]>=SIZE_RANK[g.min_size||"small"]) return outdoorText(o);
+  return null;
+}
+// For a plan: {ok:true, why:[...]} matched, {ok:false} not matched, {pending:true} not read yet.
+function mustMatch(p,pl){
+  if(!QP) return {ok:true,why:[]};
+  const f=FEAT[pl.fk];
+  const hay=(p.name+" "+p.addr+" "+pl.code+" "+(f?.summary||"")+" "+p.desc).toLowerCase();
+  if((QP.text||[]).length && !QP.text.every(t=>hay.includes(t))) return {ok:false};
+  if(!(QP.groups||[]).length) return {ok:true,why:[]};
+  if(!f) return {pending:true};
+  const why=[];
+  for(const g of QP.groups){ const h=groupHit(g,f); if(!h) return {ok:false}; why.push(h); }
+  return {ok:true,why:[...new Set(why)]};
+}
+function kindOk(p){
+  const want=S.kind!=="any"?[S.kind]:(QP?.kinds||[]);
+  return !want.length||want.includes(p.kind);
+}
+let PENDING_N=0;
 function results(){
-  const out=[];
+  const out=[]; PENDING_N=0;
   for(const p of PROPS){
+    if(!kindOk(p)) continue;
     const plans=[];
-    const toks=S.q.toLowerCase().split(/\s+/).filter(Boolean);
     for(const pl of p.plans){
       if(!planMatches(pl)) continue;
-      if(toks.length){const hay=(p.name+" "+p.addr+" "+pl.code).toLowerCase(); if(!toks.every(t=>hay.includes(t))) continue;}
+      const mm=mustMatch(p,pl);
+      if(mm.pending){PENDING_N++;continue}
+      if(!mm.ok) continue;
       const m=pl.units.filter(u=>unitMatches(u,p));
-      if(m.length) plans.push({pl,m});
+      if(m.length) plans.push({pl,m,why:mm.why});
     }
     if(plans.length) out.push({p,plans});
   }
   return out;
 }
+/* Feature tags are read from the database as they come in; untagged plans are sent to the AI reader. */
+async function loadFeatures(keys){
+  const need=[...new Set(keys.filter(k=>k&&!FEAT[k]))];
+  for(let i=0;i<need.length;i+=120){
+    const chunk=need.slice(i,i+120);
+    try{
+      const r=await fetch(`${SB_URL}/rest/v1/plan_features?select=key,features&key=in.(${chunk.join(",")})`,{headers:{apikey:SB_ANON,Authorization:`Bearer ${SB_ANON}`}});
+      if(r.ok) for(const row of await r.json()) if(row.features) FEAT[row.key]=row.features;
+    }catch(e){}
+  }
+}
+const allKeys=()=>PROPS.flatMap(p=>p.plans.map(pl=>pl.fk)).filter(Boolean);
+let POLL=null, POLL_START=0, LAST_KICK=0;
+function kickTagger(){
+  if(Date.now()-LAST_KICK<100000) return; LAST_KICK=Date.now();
+  fetch(`${SB_URL}/functions/v1/smart`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({action:"tag"})}).catch(()=>{});
+}
+function watchFeatures(){
+  clearTimeout(POLL);
+  const missing=allKeys().filter(k=>!FEAT[k]);
+  if(!missing.length||!QP||!(QP.groups||[]).length) return;
+  if(!POLL_START) POLL_START=Date.now();
+  if(Date.now()-POLL_START>6*60e3) return;
+  kickTagger();
+  POLL=setTimeout(async()=>{ const before=Object.keys(FEAT).length; await loadFeatures(missing); if(Object.keys(FEAT).length!==before||!$("count").textContent) render(true); watchFeatures(); },5000);
+}
 
 /* ---------- Results list: minimal, tap a name to see its floor plans ---------- */
 const OPEN=new Set();
 const priceFrom=units=>{const p=units.filter(u=>u.price).map(u=>u.price);return p.length?Math.min(...p):0};
-function render(){
+function render(quiet){
   const res=results();
   const nu=res.reduce((a,r)=>a+r.plans.reduce((b,x)=>b+x.m.length,0),0);
-  $("count").innerHTML=res.length?`<b>${res.length} ${res.length===1?"apartment":"apartments"}</b> with ${nu.toLocaleString()} open ${nu===1?"unit":"units"}`:"";
+  const tagged=allKeys().filter(k=>FEAT[k]).length, totalK=allKeys().length;
+  const reading=PENDING_N&&QP?`<div class="reading"><span class="checking"></span>Reading floor plans for “${esc(S.q)}”: ${tagged.toLocaleString()} of ${totalK.toLocaleString()} checked. More matches will appear.</div>`:"";
+  $("count").innerHTML=(res.length?`<b>${res.length} ${res.length===1?"rental":"rentals"}</b> with ${nu.toLocaleString()} open ${nu===1?"unit":"units"}`:"")+reading;
   const L=$("list");
   const others=othersHtml();
   if(!res.length){
     const all=PROPS.flatMap(p=>p.plans.flatMap(pl=>pl.units.filter(u=>u.price).map(u=>({p,pl,u}))));
     const cheap=all.sort((a,b)=>a.u.price-b.u.price)[0];
-    const msg=PROPS.length?`None of the ${PROPS.length} apartments with posted availability here match your criteria.${cheap?` The lowest rent right now is ${fmt(cheap.u.price)} at ${esc(cheap.p.name)}.`:""} <button class="linkbtn" data-edit>Change your criteria</button>`:"No posted availability matches yet.";
+    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for “${esc(S.q)}”. Matches will show up here as they're found.`:PROPS.length?`None of the ${PROPS.length} rentals with posted availability here match your criteria.${cheap?` The lowest rent right now is ${fmt(cheap.u.price)} at ${esc(cheap.p.name)}.`:""} <button class="linkbtn" data-edit>Change your criteria</button>`:"No posted availability matches yet.";
     L.innerHTML=`<div class="empty">${msg}</div>`+others;drawMap(res);return}
   L.innerHTML=res.map(r=>{
     const open=OPEN.has(r.p.id), units=r.plans.flatMap(x=>x.m), from=priceFrom(units);
     const beds=[...new Set(r.plans.map(x=>x.pl.beds))].sort((a,b)=>a-b).map(b=>b===0?"Studio":b+" bd");
+    const why=[...new Set(r.plans.flatMap(x=>x.why||[]))];
+    const lp=r.p.listing?r.plans[0].pl:null;
+    const sub=lp?`<span class="kindtag">${KIND_LBL[r.p.kind]||"Rental"}</span>${bedLbl(lp.beds)}, ${lp.baths} ba${lp.sqft?" &middot; "+lp.sqft.toLocaleString()+" sq ft":""}`
+      :`${r.p.kind!=="apartment"?`<span class="kindtag">${KIND_PL[r.p.kind]}</span>`:""}${beds.join(", ")} &middot; ${units.length} open`;
     return `<article class="c${open?" open":""}${S.hlProp===r.p.id?" hl":""}" id="prop-${r.p.id}">
       <button class="c-row" data-prop="${r.p.id}" aria-expanded="${open}">
-        <span class="c-main"><span class="c-name">${esc(r.p.name)}</span><span class="c-sub">${beds.join(", ")} &middot; ${units.length} open</span></span>
-        <span class="c-price">${from?`<small>from</small> ${fmt(from)}`:"Call"}</span>
+        <span class="c-main"><span class="c-name">${esc(r.p.name)}</span><span class="c-sub">${sub}</span>${why.length?`<span><span class="why">${esc(why.slice(0,2).join(" · "))}</span></span>`:""}</span>
+        <span class="c-price">${from?`${lp?"":"<small>from</small> "}${fmt(from)}`:"Call"}</span>
         <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       ${open?`<div class="c-body">
-        <div class="c-info">${esc(r.p.addr)}${r.p.live?' <span class="fresh live">Live</span>':` <span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div>
-        ${r.plans.map(({pl,m})=>`<button class="plan" data-key="${esc(pl.key)}" aria-current="${S.sel===pl.key}">
-          <span class="meta"><b>${esc(pl.code)}</b><small>${bedLbl(pl.beds)}, ${pl.baths} ba${pl.sqft?", "+pl.sqft.toLocaleString()+" sq ft":""}${tourOf(pl)?` &middot; ${tourKind(tourOf(pl))}`:""}</small></span>
+        <div class="c-info">${esc(r.p.addr)}${r.p.manager?` &middot; Listed by ${esc(r.p.manager.replace(/\s*\(.*?\)|\s+-\s+.*$/g,""))}`:""}${r.p.live?' <span class="fresh live">Live</span>':` <span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div>
+        ${r.plans.map(({pl,m,why})=>`<button class="plan" data-key="${esc(pl.key)}" aria-current="${S.sel===pl.key}">
+          <span class="meta"><b>${r.p.listing?"See photos and details":esc(pl.code)}</b><small>${bedLbl(pl.beds)}, ${pl.baths} ba${pl.sqft?", "+pl.sqft.toLocaleString()+" sq ft":""}${tourOf(pl)?` &middot; ${tourKind(tourOf(pl))}`:""}</small>${why&&why.length?`<span class="why">${esc(why.join(" · "))}</span>`:""}</span>
           <span class="avail"><b>${priceFrom(m)?fmt(priceFrom(m)):"Call"}</b><small>${m.length} open</small></span>
         </button>`).join("")}
-        <div class="c-links">${r.p.site?`<a href="${esc(r.p.site)}" target="_blank" rel="noopener">Website</a>`:""}${r.p.phone?`<span>${esc(r.p.phone)}</span>`:""}</div>
+        <div class="c-links">${r.p.site?`<a href="${esc(r.p.site)}" target="_blank" rel="noopener">${r.p.listing?"View listing":"Website"}</a>`:""}${r.p.phone?`<span>${esc(r.p.phone)}</span>`:""}</div>
       </div>`:""}
     </article>`}).join("")+others;
   drawMap(res);
-  if(S.sel) renderDetail();
+  if(S.sel&&!quiet) renderDetail();
 }
 
 /* ---------- Map: MapLibre + OpenFreeMap "positron" (quiet, labels kept light) with price pins ---------- */
@@ -584,6 +696,14 @@ function findPlan(key){const [pid]=key.split(":");const p=PROPS.find(x=>x.id===p
 const chip=s=>`<span class="chip ${s}">${s==="confirmed"?"Confirmed":s==="inferred"?"Likely":"Not listed"}</span>`;
 const floorTxt=u=>u.floor==null?"Unknown":ord(u.floor);
 
+function featHtml(p,pl){
+  const f=FEAT[pl.fk];
+  if(!f&&!p.desc) return "";
+  const want=new Set((QP?.groups||[]).flatMap(g=>g.any_tags||[]));
+  const o=outdoorText(f?.outdoor);
+  const chips=[o?`<span class="${(QP?.groups||[]).some(g=>(g.outdoor_types||[]).includes(f.outdoor.type))?"hit":""}">${esc(o)}</span>`:"",...(f?.tags||[]).map(t=>`<span class="${want.has(t)?"hit":""}">${esc(TAG_LBL[t]||t)}</span>`)].join("");
+  return `<div class="feat"><h4>${p.listing?"About this home":"What the floor plan shows"}</h4>${f?.summary?`<p>${esc(f.summary)}</p>`:""}${chips?`<div class="ftags">${chips}</div>`:""}${p.listing&&p.desc?`<p>${esc(p.desc)}</p>`:""}${f?`<p style="font-size:12px">Read from the ${p.listing?"listing photo and description":"floor plan image"} by AI. Confirm details with the ${p.listing?"property manager":"leasing office"}.</p>`:""}</div>`;
+}
 function renderDetail(){
   const {p,pl}=findPlan(S.sel); const D=$("detail");
   const m=pl.units.filter(u=>unitMatches(u,p));
@@ -596,7 +716,7 @@ function renderDetail(){
   D.hidden=false;
   D.innerHTML=`
     <div class="d-top">
-      <div><h2>${esc(p.name)} · ${esc(pl.code)}</h2><div class="addr">${esc(p.addr)}${p.phone?" · Leasing "+esc(p.phone):""}${p.site?` · <a href="${esc(p.site)}" target="_blank" rel="noopener">Property website</a>`:""}</div></div>
+      <div><h2>${esc(p.name)}${p.listing?"":" · "+esc(pl.code)}</h2><div class="addr">${p.listing?`${KIND_LBL[p.kind]||"Rental"} · `:""}${esc(p.addr)}${p.phone?" · "+(p.listing?"":"Leasing ")+esc(p.phone):""}${p.site?` · <a href="${esc(p.site)}" target="_blank" rel="noopener">${p.listing?"View listing":"Property website"}</a>`:""}</div></div>
       <button class="close" id="close" aria-label="Back to list"><span aria-hidden="true">&larr;</span> Back</button>
     </div>
     <div class="d-grid">
@@ -604,18 +724,20 @@ function renderDetail(){
         ${tour&&info?`<iframe src="${esc(info.src)}" allow="${info.allow}" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" title="${esc(info.kind)} of ${esc(pl.code)}"></iframe>
           <div class="tour-top">${allTours.length>1?allTours.map((t,i)=>`<button class="tchip${t===tour?" on":""}" data-tour="${i}">${t===planTour?esc(pl.code)+" "+tourKind(t).toLowerCase():tourKind(t)+(allTours.length>2?" "+(i+(planTour?0:1)):"")}</button>`).join(""):`<span class="tchip on">${isComm?"Community "+info.kind.toLowerCase():info.kind}</span>`}</div>
           <div class="tour-bar"><a class="btn" href="${esc(tour)}" target="_blank" rel="noopener">Open tour</a>${mine?'<button class="btn ghost" id="rmtour">Remove</button>':""}</div>`
-        :pl.img?`<img class="fpimg" src="${esc(pl.img)}" alt="Floor plan ${esc(pl.code)}" loading="lazy"><div class="tour-bar"><span class="tchip on">Floor plan, no tour posted</span></div>`
+        :pl.img?`<img class="fpimg" src="${esc(pl.img)}" alt="${p.listing?"Photo of "+esc(p.name):"Floor plan "+esc(pl.code)}" loading="lazy"><div class="tour-bar"><span class="tchip on">${p.listing?"Listing photo":"Floor plan, no tour posted"}</span></div>`
         :`<h4>No 3D tour listed for this layout</h4>
           <p>If you have this floor plan's Matterport link, paste it here. It's saved in this browser.</p>
           <form class="tour-form" id="tourform"><input id="tourin" type="url" placeholder="https://my.matterport.com/show/?m=" aria-label="Matterport link"><button class="btn" type="submit">Save</button></form>`}
       </div>
       <div class="big">
-        <div class="n">${m.length}</div>
-        <p><b>${m.length===1?"unit is":"units are"} open</b> in this layout and fit your search${pl.units.length>m.length?`, out of ${pl.units.length} open in total`:""}.</p>
+        ${p.listing?`<div class="n">${fmt(pl.units[0].price)}</div>
+        <p><b>per month</b>, ${fdate(pl.units[0].avail)==="Now"?"available now":"available "+fdate(pl.units[0].avail)}.</p>`:`<div class="n">${m.length}</div>
+        <p><b>${m.length===1?"unit is":"units are"} open</b> in this layout and fit your search${pl.units.length>m.length?`, out of ${pl.units.length} open in total`:""}.</p>`}
         <div class="specs"><span>${pl.beds===0?"Studio":pl.beds+" bedroom"+(pl.beds>1?"s":"")}</span><span>${pl.baths} bathroom${pl.baths>1?"s":""}</span><span>${pl.sqft?pl.sqft.toLocaleString()+" sq ft":"Size not listed"}</span>${p.stories?`<span>${p.stories}-story buildings${p.plans.some(x=>x.units.some(u=>u.source==="confirmed"))?"":" (estimated)"}</span>`:""}</div>
       </div>
     </div>
-    <div>
+    ${featHtml(p,pl)}
+    <div${p.listing?" hidden":""}>
       <div class="legend" style="margin-bottom:6px">Floor: ${chip("confirmed")} from the property's building map ${chip("inferred")} read from unit number ${chip("unknown")} ask leasing office</div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Unit</th><th>Floor</th><th class="acc">Accuracy</th><th>Rent</th><th>Available</th><th>Tour</th></tr></thead>
@@ -623,7 +745,7 @@ function renderDetail(){
       </table></div>
       <div class="legend" style="margin-top:6px">Highlighted units fit your search.</div>
     </div>
-    <div class="ask">
+    <div class="ask"${p.listing?" hidden":""}>
       <h4>Ask about these units</h4>
       <div class="chips">
         <button data-q="Which floors are they on?">Which floors?</button>
@@ -714,13 +836,17 @@ function startSearch(area){
 function applyResults(res){
   const comms=res.communities||[];
   OTHERS=comms.filter(c=>!(c.models&&c.models.length)&&c.site&&c.lat!=null).sort((a,b)=>a.name.localeCompare(b.name));
-  PROPS=buildProps(comms.filter(c=>c.models&&c.models.length&&c.lat!=null).map(c=>({data:c,scraped_at:c.fetched_at,live:c.status==="live"})));
+  // Listings from property managers can span a metro; keep the ones within about 25 km of the searched area.
+  const ctr=res.area&&res.area.lat!=null?[res.area.lat,res.area.lng]:null;
+  const near=c=>{ if(!c.listing||!ctr) return true; const r=Math.PI/180, x=(c.lng-ctr[1])*r*Math.cos((c.lat+ctr[0])/2*r), y=(c.lat-ctr[0])*r; return Math.hypot(x,y)*6371<=25; };
+  PROPS=buildProps(comms.filter(c=>c.models&&c.models.length&&c.lat!=null&&near(c)).map(c=>({data:c,scraped_at:c.fetched_at,live:c.status==="live"})));
   const nLive=PROPS.filter(p=>p.live).length;
-  $("updated").textContent=comms.length?`${nLive} of ${comms.length} checked live at ${fmtTime(new Date())}`:"";
+  $("updated").textContent=comms.length?`${nLive} sources checked live at ${fmtTime(new Date())}`:"";
   READY_AREA=PENDING_AREA;
 }
 function critSummary(){
   const bits=[S.area];
+  if(S.kind!=="any") bits.push(KIND_PL[S.kind]);
   if(S.beds!=="any") bits.push(S.beds==="0"?"Studio":S.beds==="3"?"3+ bd":S.beds+" bd");
   if(S.baths) bits.push(S.baths+"+ ba");
   if(S.minRent&&S.budget<99999) bits.push(`${fmt(S.minRent)} to ${fmt(S.budget)}`); else if(S.budget<99999) bits.push("under "+fmt(S.budget)); else if(S.minRent) bits.push("over "+fmt(S.minRent));
@@ -733,7 +859,7 @@ function critSummary(){
 function setPills(name,val){ document.querySelectorAll(`.pills[data-name="${name}"] button`).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===String(val)))); }
 function fillCriteria(){
   $("cr-area").textContent=S.area;
-  setPills("beds",S.beds); setPills("baths",S.baths); setPills("floor",S.floor);
+  setPills("kind",S.kind); setPills("beds",S.beds); setPills("baths",S.baths); setPills("floor",S.floor);
   $("c-min").value=S.minRent||""; $("c-max").value=S.budget<99999?S.budget:""; $("c-move").value=S.movein; $("c-sqft").value=S.sqft||""; $("c-q").value=S.q;
 }
 function showStep(n){
@@ -750,9 +876,9 @@ $("homeform").addEventListener("submit",e=>{
   const area=$("h-area").value.trim();
   if(area.length<2){ $("homeerr").textContent="Type a city, neighborhood, or ZIP code."; $("h-area").focus(); return; }
   $("homeerr").textContent="";
-  Object.assign(S,{area,beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null});
+  Object.assign(S,{area,kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null});
   OPEN.clear();
-  $("cr-status").innerHTML='<span class="checking"></span>Checking apartment websites in the background';
+  $("cr-status").innerHTML='<span class="checking"></span>Checking rental listings in the background';
   startSearch(area).catch(()=>{});
   fillCriteria(); showStep(2);
 });
@@ -761,19 +887,22 @@ $("step2").addEventListener("submit",async e=>{
   e.preventDefault();
   S.minRent=+$("c-min").value||0; S.budget=+$("c-max").value||99999; S.movein=$("c-move").value; S.sqft=+$("c-sqft").value||0; S.q=$("c-q").value.trim();
   if(S.minRent&&S.budget<99999&&S.minRent>S.budget){ [S.minRent,S.budget]=[S.budget,S.minRent]; }
-  S.sel=null; $("detail").hidden=true;
+  S.sel=null; $("detail").hidden=true; POLL_START=0; clearTimeout(POLL);
+  const parsing=parseMust(S.q);
   $("searchsum").textContent=critSummary();
   $("home").hidden=true; $("app").hidden=false; setView("list");
   try{history.pushState({r:1},"","#results")}catch(err){}
   window.scrollTo(0,0); try{initMap()}catch(err){console.warn("map",err)}
   if(READY_AREA!==S.area){
-    $("list").innerHTML='<div class="empty"><span class="checking"></span>Checking apartment websites. A first search in a new area can take up to a minute.</div>';
+    $("list").innerHTML='<div class="empty"><span class="checking"></span>Checking apartment, home, and townhome listings. A first search in a new area can take up to a minute.</div>';
     $("count").textContent=""; $("updated").textContent="";
     try{ applyResults(await startSearch(S.area)); }
     catch(err){ PROPS=[];OTHERS=[]; $("list").innerHTML=`<div class="empty">The search didn't finish (${esc(err.message||"network error")}). <button class="linkbtn" id="retry">Try again</button></div>`; $("retry")&&$("retry").addEventListener("click",()=>{PENDING=null;$("step2").requestSubmit()}); return; }
   }
+  await parsing; await loadFeatures(allKeys());
   render(); NEED_FIT=true;
   if(MAP_READY) fitAll();
+  watchFeatures();
 });
 $("editcrit").addEventListener("click",showCriteria);
 $("newsearch").addEventListener("click",showHome);
