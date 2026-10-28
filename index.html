@@ -100,6 +100,10 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--surfac
 .avail b{font-weight:600}
 .avail small{display:block;color:var(--muted);font-size:12px}
 .empty{color:var(--muted);padding:28px 20px;line-height:1.5}
+.nearby{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.nearby button{text-align:left;border:1px solid var(--line-strong);background:var(--surface);color:var(--fg);border-radius:12px;padding:10px 14px;font:500 14px var(--f-body);cursor:pointer}
+.nearby button:hover{border-color:var(--fg)}
+.nearby b{font-weight:650}
 .linkbtn{border:0;background:none;padding:0;color:var(--fg);font:inherit;font-weight:600;text-decoration:underline;cursor:pointer}
 .fresh{font-size:12px;font-weight:600;white-space:nowrap}
 .fresh.live{color:var(--ok)}
@@ -115,7 +119,7 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--surfac
 .pm::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:inherit;border-right:1px solid rgba(23,24,27,.12);border-bottom:1px solid rgba(23,24,27,.12);transform:translateX(-50%) rotate(45deg)}
 .pm:hover{background:#17181b;color:#fff;z-index:2}
 .pm.sel{background:var(--glow);color:#17181b;border-color:rgba(0,0,0,.15);z-index:3}
-.pm-dot{width:9px;height:9px;border-radius:50%;background:#a3a4a9;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.08);pointer-events:auto}
+.pm-dot{padding:0;appearance:none;-webkit-appearance:none;display:block;width:9px;height:9px;border-radius:50%;background:#a3a4a9;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.08);pointer-events:auto}
 .maplibregl-ctrl-attrib{font-size:11px}
 .viewtoggle{display:none}
 
@@ -593,6 +597,24 @@ function watchFeatures(){
 /* ---------- Results list: minimal, tap a name to see its floor plans ---------- */
 const OPEN=new Set();
 const priceFrom=units=>{const p=units.filter(u=>u.price).map(u=>u.price);return p.length?Math.min(...p):0};
+// When nothing matches, count what would match if one criterion were loosened.
+function relaxOptions(){
+  const save={...S}, saveQP=QP, opts=[];
+  const tryIt=(label,apply)=>{ Object.assign(S,save); QP=saveQP; apply(); const r=results(); const n=r.length; Object.assign(S,save); QP=saveQP; if(n) opts.push({label,n,apply}); };
+  if(S.beds!=="any") tryIt(S.beds==="3"?"any number of bedrooms":S.beds==="0"?"1 or more bedrooms":`${+S.beds+1}+ bedrooms`,()=>{S.beds=S.beds==="0"?"1":S.beds==="3"?"any":String(Math.min(+S.beds+1,3))});
+  if(S.beds!=="any") tryIt("any number of bedrooms",()=>{S.beds="any"});
+  if(S.kind!=="any") tryIt("any rental type",()=>{S.kind="any"});
+  if(S.budget<99999) tryIt(`up to ${fmt(Math.round(S.budget*1.15/50)*50)}`,()=>{S.budget=Math.round(S.budget*1.15/50)*50});
+  if(S.minRent) tryIt("no minimum rent",()=>{S.minRent=0});
+  if(S.baths) tryIt("any number of bathrooms",()=>{S.baths=0});
+  if(S.sqft) tryIt("any size",()=>{S.sqft=0});
+  if(S.movein) tryIt("any move-in date",()=>{S.movein=""});
+  if(S.floor!=="any") tryIt("any floor",()=>{S.floor="any"});
+  if(QP&&S.q) tryIt(`without “${S.q}”`,()=>{QP=null});
+  const seen=new Set(); RELAX=opts.filter(o=>!seen.has(o.label)&&seen.add(o.label)).sort((a,b)=>a.n-b.n).slice(0,4);
+  return RELAX;
+}
+let RELAX=[];
 function render(quiet){
   const res=results();
   const nu=res.reduce((a,r)=>a+r.plans.reduce((b,x)=>b+x.m.length,0),0);
@@ -604,8 +626,11 @@ function render(quiet){
   if(!res.length){
     const all=PROPS.flatMap(p=>p.plans.flatMap(pl=>pl.units.filter(u=>u.price).map(u=>({p,pl,u}))));
     const cheap=all.sort((a,b)=>a.u.price-b.u.price)[0];
-    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for “${esc(S.q)}”. Matches will show up here as they're found.`:PROPS.length?`None of the ${PROPS.length} rentals with posted availability here match your criteria.${cheap?` The lowest rent right now is ${fmt(cheap.u.price)} at ${esc(cheap.p.name)}.`:""} <button class="linkbtn" data-edit>Change your criteria</button>`:"No posted availability matches yet.";
-    L.innerHTML=`<div class="empty">${msg}</div>`+others;drawMap(res);return}
+    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for “${esc(S.q)}”. Matches will show up here as they're found.`:PROPS.length?`Nothing among the ${PROPS.length} rentals we could read here matches all of your criteria. Close matches: <button class="linkbtn" data-edit>or change your criteria</button>`:"No posted availability matches yet.";
+    const near=PENDING_N?[]:relaxOptions();
+    const msg2=near.length?msg:msg.replace(`Close matches: <button class="linkbtn" data-edit>or change your criteria</button>`,`<button class="linkbtn" data-edit>Change your criteria</button>`);
+    const nearHtml=near.length?`<div class="nearby">${near.map((o,i)=>`<button data-relax="${i}"><b>${o.n} ${o.n===1?"rental":"rentals"}</b> with ${esc(o.label)}</button>`).join("")}</div>`:"";
+    L.innerHTML=`<div class="empty">${msg2}${nearHtml}</div>`+others;drawMap(res);return}
   L.innerHTML=res.map(r=>{
     const open=OPEN.has(r.p.id), units=r.plans.flatMap(x=>x.m), from=priceFrom(units);
     const beds=[...new Set(r.plans.map(x=>x.pl.beds))].sort((a,b)=>a-b).map(b=>b===0?"Studio":b+" bd");
@@ -797,6 +822,8 @@ function ask(q){
 /* ---------- Events ---------- */
 $("list").addEventListener("click",e=>{
   if(e.target.closest("[data-edit]")){showCriteria();return}
+  const rx=e.target.closest("[data-relax]");
+  if(rx){ const o=RELAX[+rx.dataset.relax]; if(o){ o.apply(); if(!QP) {S.q="";QP_FOR=""} $("searchsum").textContent=critSummary(); render(); NEED_FIT=true; if(MAP_READY) fitAll(); } return }
   const pl=e.target.closest(".plan");
   if(pl){S.sel=pl.dataset.key;render();if(isPhone())$("detail").scrollTop=0;return}
   const row=e.target.closest(".c-row");

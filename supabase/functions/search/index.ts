@@ -374,7 +374,13 @@ async function readBuildium(cfg: { sub: string }): Promise<Listing[]> {
     };
   }).filter((x): x is Listing => !!x && x.rent > 0);
 }
-const LISTING_READERS: Record<string, (cfg: any) => Promise<Listing[]>> = { appfolio: readAppfolio, buildium: readBuildium };
+// Managers also post parking spots, storage units and offices; those aren't homes.
+const NOT_HOME = /\b(parking|garage space|carport space|storage|office|retail|commercial|warehouse|land|lot only|boat slip|rv space)\b/i;
+const isHome = (l: Listing) => l.rent >= 300 && !NOT_HOME.test(l.title);
+const LISTING_READERS: Record<string, (cfg: any) => Promise<Listing[]>> = {
+  appfolio: async (cfg) => (await readAppfolio(cfg)).filter(isHome),
+  buildium: async (cfg) => (await readBuildium(cfg)).filter(isHome),
+};
 
 // Free US Census geocoder for listing addresses; results cached forever.
 async function geocode(addrs: string[]): Promise<Map<string, [number, number] | null>> {
@@ -382,8 +388,8 @@ async function geocode(addrs: string[]): Promise<Map<string, [number, number] | 
   const uniq = [...new Set(addrs.filter(Boolean))];
   const { data } = await sb.from("geocodes").select("addr,lat,lng,ok").in("addr", uniq);
   for (const g of data ?? []) out.set(g.addr, g.ok ? [g.lat, g.lng] : null);
-  const todo = uniq.filter((a) => !out.has(a)).slice(0, 80);
-  await pool(todo, 6, async (a) => {
+  const todo = uniq.filter((a) => !out.has(a)).slice(0, 500);
+  await pool(todo, 16, async (a) => {
     const { text } = await getText(`https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(a.replace(/\s*(#|unit|apt\.?)\s*[\w-]+/i, ""))}&benchmark=Public_AR_Current&format=json`, 8000);
     let hit: [number, number] | null = null;
     try { const c = JSON.parse(text)?.result?.addressMatches?.[0]?.coordinates; if (c) hit = [c.y, c.x]; } catch { /* no match */ }
