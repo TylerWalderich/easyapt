@@ -67,7 +67,8 @@ Use "corner_unit" only if windows clearly sit on two outside walls. Use "two_sto
 async function imagePart(url: string): Promise<unknown | null> {
   if (!url) return null;
   // Plain image links are passed by URL; anything else is downloaded and checked first.
-  if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(url)) return { type: "image", source: { type: "url", url } };
+  // Includes links like ".../download?fileName=abc.jpeg&isPreview=true" (Buildium).
+  if (/\.(jpe?g|png|gif|webp)(\?|&|$)/i.test(url)) return { type: "image", source: { type: "url", url } };
   return await imageInline(url);
 }
 async function imageInline(url: string): Promise<unknown | null> {
@@ -76,7 +77,7 @@ async function imageInline(url: string): Promise<unknown | null> {
     const type = (r.headers.get("content-type") ?? "").split(";")[0];
     if (!r.ok || !/^image\/(jpeg|png|gif|webp)$/.test(type)) return null;
     const buf = new Uint8Array(await r.arrayBuffer());
-    if (buf.length > 4_500_000) return null;
+    if (buf.length > 1_500_000) return null; // keep memory low on the edge worker
     return { type: "image", source: { type: "base64", media_type: type, data: encodeBase64(buf) } };
   } catch { return null; }
 }
