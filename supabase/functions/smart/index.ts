@@ -57,11 +57,12 @@ Property type, judged from the photo, the address and the description together:
 - house: a detached single-family home, no shared walls.
 - townhome: a home that shares a wall with a neighbor but has its own front door at ground level: townhouses, rowhouses, duplex/triplex/fourplex units (addresses ending in A, B, C or "Unit A"), patio homes in attached rows. A two-story attached unit with its own garage is a townhome.
 - apartment: a unit in a multi-unit building reached by shared hallways or stairs, or a numbered unit in a larger complex; garage apartments and studios over garages count as apartments.
-- unknown: a floor plan drawing alone with no photo or description that settles it.
+- For a floor plan drawing from an apartment community: "townhome" when the unit itself has living space on two or more floors joined by a staircase INSIDE the unit (separate first-floor and second-floor panels, or an attached garage below); otherwise "apartment". Stairs drawn outside the unit's walls (a building stairwell or exterior steps) do not make it a townhome.
+- unknown: only when it is truly impossible to tell.
 Rules for dimensions: a dimension label belongs to the indoor room it is printed in or beside. On most plans the labels next to a balcony belong to the living room or bedroom it opens from, not to the balcony. Only use a label for the outdoor space if it is printed inside the outdoor area or names it ("Balcony 6' x 10'", "Patio"). Otherwise leave outdoor.dims and outdoor.sqft null and judge size from proportions.
 Outdoor size: small = a typical balcony or patio, roughly 5-7 ft deep or under 60 sq ft; medium = 60-99 sq ft, or noticeably deeper or wider than usual; large = 100 sq ft or more by a label that clearly belongs to it, or visibly at least half the size of the room it opens from, or wrapping a corner. When unsure between two sizes, choose the smaller.
 "terrace" means a large outdoor space; a normal balcony is "balcony". A private fenced yard is outdoor type "yard" plus tag "fenced_yard".
-Use "corner_unit" only if windows clearly sit on two outside walls. Use "two_story" for plans with stairs between floors.`;
+Use "corner_unit" only if windows clearly sit on two outside walls. Use "two_story" only when the unit's own rooms are on two levels joined by an interior staircase; never for building or exterior stairs. Use "private_entry" when the unit has its own exterior front door.`;
 
 async function imagePart(url: string): Promise<unknown | null> {
   if (!url) return null;

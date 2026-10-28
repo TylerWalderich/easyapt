@@ -573,17 +573,23 @@ function mustMatch(p,pl){
   for(const g of QP.groups){ const h=groupHit(g,f); if(!h) return {ok:false}; why.push(h); }
   return {ok:true,why:[...new Set(why)]};
 }
-function kindOk(p){
-  const want=S.kind!=="any"?[S.kind]:(QP?.kinds||[]);
-  return !want.length||want.includes(p.kind);
+// Rental type is decided per floor plan: apartment communities often have townhome plans too.
+const TH_NAME={test:n=>/town ?home|town ?house|carriage/i.test(n)||/^TH(\d|[A-Z]{0,2}\b|[-\s]|$)|\bTH\d*\b/.test(n)};
+function planKind(p,pl){
+  if(p.listing) return p.kind;
+  const f=FEAT[pl.fk]||{};
+  if(TH_NAME.test(pl.code)||f.kind==="townhome") return "townhome";
+  return p.kind;
 }
+function kindWanted(){ return S.kind!=="any"?[S.kind]:(QP?.kinds||[]); }
 let PENDING_N=0;
 function results(){
   const out=[]; PENDING_N=0;
   for(const p of PROPS){
-    if(!kindOk(p)) continue;
+    const want=kindWanted();
     const plans=[];
     for(const pl of p.plans){
+      if(want.length&&!want.includes(planKind(p,pl))) continue;
       if(!planMatches(pl)) continue;
       const mm=mustMatch(p,pl);
       if(mm.pending){PENDING_N++;continue}
@@ -670,7 +676,8 @@ function render(quiet){
     const why=[...new Set(r.plans.flatMap(x=>x.why||[]))];
     const lp=r.p.listing?r.plans[0].pl:null;
     const sub=lp?`<span class="kindtag">${KIND_LBL[r.p.kind]||"Rental"}</span>${bedLbl(lp.beds)}, ${lp.baths} ba${lp.sqft?" &middot; "+lp.sqft.toLocaleString()+" sq ft":""}`
-      :`${r.p.kind!=="apartment"?`<span class="kindtag">${KIND_PL[r.p.kind]}</span>`:""}${beds.join(", ")} &middot; ${units.length} open`;
+      :(()=>{const ks=[...new Set(r.plans.map(x=>planKind(r.p,x.pl)))]; const k=ks.length===1?ks[0]:r.p.kind;
+        return `${k!=="apartment"?`<span class="kindtag">${KIND_PL[k]}</span>`:""}${beds.join(", ")} &middot; ${units.length} open`})();
     return `<article class="c${open?" open":""}${S.hlProp===r.p.id?" hl":""}" id="prop-${r.p.id}">
       <button class="c-row" data-prop="${r.p.id}" aria-expanded="${open}">
         <span class="c-main"><span class="c-name">${esc(r.p.name)}</span><span class="c-sub">${sub}</span>${why.length?`<span><span class="why">${esc(why.slice(0,2).join(" · "))}</span></span>`:""}</span>
@@ -680,7 +687,7 @@ function render(quiet){
       ${open?`<div class="c-body">
         <div class="c-info">${esc(r.p.addr)}${r.p.manager?` &middot; Listed by ${esc(r.p.manager.replace(/\s*\(.*?\)|\s+-\s+.*$/g,""))}`:""}${r.p.live?' <span class="fresh live">Live</span>':` <span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div>
         ${r.plans.map(({pl,m,why})=>`<button class="plan" data-key="${esc(pl.key)}" aria-current="${S.sel===pl.key}">
-          <span class="meta"><b>${r.p.listing?"See photos and details":esc(pl.code)}</b><small>${bedLbl(pl.beds)}, ${pl.baths} ba${pl.sqft?", "+pl.sqft.toLocaleString()+" sq ft":""}${tourOf(pl)?` &middot; ${tourKind(tourOf(pl))}`:""}</small>${why&&why.length?`<span class="why">${esc(why.join(" · "))}</span>`:""}</span>
+          <span class="meta"><b>${r.p.listing?"See photos and details":esc(pl.code)}</b>${!r.p.listing&&planKind(r.p,pl)==="townhome"&&r.p.kind!=="townhome"?' <span class="kindtag" style="margin-left:4px">Townhome</span>':""}<small>${bedLbl(pl.beds)}, ${pl.baths} ba${pl.sqft?", "+pl.sqft.toLocaleString()+" sq ft":""}${tourOf(pl)?` &middot; ${tourKind(tourOf(pl))}`:""}</small>${why&&why.length?`<span class="why">${esc(why.join(" · "))}</span>`:""}</span>
           <span class="avail"><b>${priceFrom(m)?fmt(priceFrom(m)):"Call"}</b><small>${m.length} open</small></span>
         </button>`).join("")}
         <div class="c-links">${r.p.site?`<a href="${esc(r.p.site)}" target="_blank" rel="noopener">${r.p.listing?"View listing":"Website"}</a>`:""}${r.p.phone?`<span>${esc(r.p.phone)}</span>`:""}</div>
