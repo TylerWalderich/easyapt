@@ -28,7 +28,7 @@ export const TAGS = [
 const OUTDOOR = ["none", "balcony", "patio", "terrace", "rooftop", "yard", "courtyard", "porch"];
 const SIZES = ["none", "small", "medium", "large"];
 
-async function claude(content: unknown[], system: string, maxTokens = 1200): Promise<string> {
+async function claude(content: unknown[], system: string, maxTokens = 2500): Promise<string> {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": AKEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
@@ -45,13 +45,15 @@ function firstJson(t: string): any {
 }
 
 // ---------- Tagging ----------
-const TAG_SYSTEM = `You read rental floor plans (and listing photos or descriptions) for an apartment search engine.
-Report only what the image or text actually shows. Floor plans often label rooms and dimensions such as "Balcony 12'x6'" or "Patio"; use them.
-Reply with one JSON object and nothing else:
-{"outdoor":{"type":one of ${JSON.stringify(OUTDOOR)},"size":one of ${JSON.stringify(SIZES)},"sqft":number or null,"count":number},
+const TAG_SYSTEM = `You read rental floor plans (and listing photos or descriptions) for a rental search engine.
+Report only what the image or text actually shows. Be conservative: a wrong "large terrace" sends renters to the wrong apartment.
+Work in this order and reply with one JSON object and nothing else:
+{"rooms":[{"name":"living room","dims":"12'8\" x 14'8\"" or null}],
+ "outdoor":{"type":one of ${JSON.stringify(OUTDOOR)},"dims":"dimension label printed INSIDE the outdoor space or naming it, else null","sqft":number or null,"depth_vs_room":"how deep the outdoor space looks compared with the room it opens from, e.g. about one third","size":one of ${JSON.stringify(SIZES)},"count":number},
  "tags":[zero or more of ${JSON.stringify(TAGS)}],
  "summary":"one plain sentence, max 140 characters, naming the standout features"}
-Outdoor size: small under 50 sq ft (a narrow balcony), medium 50-99, large 100 sq ft or more, or clearly the largest outdoor space a plan of this size would have (a wraparound or extra-deep terrace). If there is more than one outdoor space, describe the biggest and set count.
+Rules for dimensions: a dimension label belongs to the indoor room it is printed in or beside. On most plans the labels next to a balcony belong to the living room or bedroom it opens from, not to the balcony. Only use a label for the outdoor space if it is printed inside the outdoor area or names it ("Balcony 6' x 10'", "Patio"). Otherwise leave outdoor.dims and outdoor.sqft null and judge size from proportions.
+Outdoor size: small = a typical balcony or patio, roughly 5-7 ft deep or under 60 sq ft; medium = 60-99 sq ft, or noticeably deeper or wider than usual; large = 100 sq ft or more by a label that clearly belongs to it, or visibly at least half the size of the room it opens from, or wrapping a corner. When unsure between two sizes, choose the smaller.
 "terrace" means a large outdoor space; a normal balcony is "balcony". A private fenced yard is outdoor type "yard" plus tag "fenced_yard".
 Use "corner_unit" only if windows clearly sit on two outside walls. Use "two_story" for plans with stairs between floors.`;
 
@@ -77,7 +79,8 @@ function clean(f: any) {
     outdoor: {
       type: OUTDOOR.includes(o.type) ? o.type : "none",
       size: SIZES.includes(o.size) ? o.size : (o.type && o.type !== "none" ? "small" : "none"),
-      sqft: Number.isFinite(+o.sqft) && +o.sqft > 0 ? Math.round(+o.sqft) : null,
+      // A square footage is kept only when it came from a label that belongs to the outdoor space.
+      sqft: o.dims && Number.isFinite(+o.sqft) && +o.sqft > 0 && +o.sqft < 2000 ? Math.round(+o.sqft) : null,
       count: Number.isFinite(+o.count) ? Math.max(0, Math.min(6, Math.round(+o.count))) : 0,
     },
     tags: [...new Set((Array.isArray(f?.tags) ? f.tags : []).filter((t: string) => TAGS.includes(t)))],
