@@ -465,7 +465,8 @@ async function attachFeatureKeys(results: any[]) {
     if (!r.models) continue;
     for (const m of r.models as Model[]) {
       const img = typeof m[6] === "string" ? m[6] : "";
-      const key = await sha(img ? img.replace(/[?#].*$/, "") : `${r.place_id}|${m[0]}`);
+      // The full image URL is the key: some hosts (Buildium) put the file name in the query string.
+      const key = await sha(img ? img.replace(/#.*$/, "") : `${r.place_id}|${m[0]}`);
       m[7] = key;
       rows.push({
         key, place_id: r.place_id, plan: String(m[0]).slice(0, 120), image_url: img || null,
