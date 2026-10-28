@@ -579,6 +579,11 @@ async function loadFeatures(keys){
   }
 }
 const allKeys=()=>PROPS.flatMap(p=>p.plans.map(pl=>pl.fk)).filter(Boolean);
+// The AI decides house / townhome / apartment for each listing from its photo and description;
+// that replaces the guess made from the listing's wording.
+function applyAIKinds(){
+  for(const p of PROPS){ if(!p.listing) continue; const k=(FEAT[p.plans[0].fk]||{}).kind; if(k&&k!=="unknown") p.kind=k; }
+}
 let POLL=null, POLL_START=0, LAST_KICK=0;
 function kickTagger(){
   if(Date.now()-LAST_KICK<100000) return; LAST_KICK=Date.now();
@@ -587,11 +592,11 @@ function kickTagger(){
 function watchFeatures(){
   clearTimeout(POLL);
   const missing=allKeys().filter(k=>!FEAT[k]);
-  if(!missing.length||!QP||!(QP.groups||[]).length) return;
+  if(!missing.length||(S.kind==="any"&&(!QP||!(QP.groups||[]).length))) return;
   if(!POLL_START) POLL_START=Date.now();
   if(Date.now()-POLL_START>6*60e3) return;
   kickTagger();
-  POLL=setTimeout(async()=>{ const before=Object.keys(FEAT).length; await loadFeatures(missing); if(Object.keys(FEAT).length!==before||!$("count").textContent) render(true); watchFeatures(); },5000);
+  POLL=setTimeout(async()=>{ const before=Object.keys(FEAT).length; await loadFeatures(missing); applyAIKinds(); if(Object.keys(FEAT).length!==before||!$("count").textContent) render(true); watchFeatures(); },5000);
 }
 
 /* ---------- Results list: minimal, tap a name to see its floor plans ---------- */
@@ -926,7 +931,7 @@ $("step2").addEventListener("submit",async e=>{
     try{ applyResults(await startSearch(S.area)); }
     catch(err){ PROPS=[];OTHERS=[]; $("list").innerHTML=`<div class="empty">The search didn't finish (${esc(err.message||"network error")}). <button class="linkbtn" id="retry">Try again</button></div>`; $("retry")&&$("retry").addEventListener("click",()=>{PENDING=null;$("step2").requestSubmit()}); return; }
   }
-  await parsing; await loadFeatures(allKeys());
+  await parsing; await loadFeatures(allKeys()); applyAIKinds();
   render(); NEED_FIT=true;
   if(MAP_READY) fitAll();
   watchFeatures();
