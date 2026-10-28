@@ -601,17 +601,17 @@ const priceFrom=units=>{const p=units.filter(u=>u.price).map(u=>u.price);return 
 function relaxOptions(){
   const save={...S}, saveQP=QP, opts=[];
   const tryIt=(label,apply)=>{ Object.assign(S,save); QP=saveQP; apply(); const r=results(); const n=r.length; Object.assign(S,save); QP=saveQP; if(n) opts.push({label,n,apply}); };
-  if(S.beds!=="any") tryIt(S.beds==="3"?"any number of bedrooms":S.beds==="0"?"1 or more bedrooms":`${+S.beds+1}+ bedrooms`,()=>{S.beds=S.beds==="0"?"1":S.beds==="3"?"any":String(Math.min(+S.beds+1,3))});
-  if(S.beds!=="any") tryIt("any number of bedrooms",()=>{S.beds="any"});
-  if(S.kind!=="any") tryIt("any rental type",()=>{S.kind="any"});
+  if(S.beds!=="any"&&S.beds!=="3") tryIt(S.beds==="0"?"with 1+ bedrooms":`with ${+S.beds+1}+ bedrooms`,()=>{S.beds=S.beds==="0"?"1":String(Math.min(+S.beds+1,3))});
+  if(S.beds!=="any") tryIt("with any number of bedrooms",()=>{S.beds="any"});
+  if(S.kind!=="any") tryIt("of any rental type",()=>{S.kind="any"});
   if(S.budget<99999) tryIt(`up to ${fmt(Math.round(S.budget*1.15/50)*50)}`,()=>{S.budget=Math.round(S.budget*1.15/50)*50});
-  if(S.minRent) tryIt("no minimum rent",()=>{S.minRent=0});
-  if(S.baths) tryIt("any number of bathrooms",()=>{S.baths=0});
-  if(S.sqft) tryIt("any size",()=>{S.sqft=0});
-  if(S.movein) tryIt("any move-in date",()=>{S.movein=""});
-  if(S.floor!=="any") tryIt("any floor",()=>{S.floor="any"});
+  if(S.minRent) tryIt("with no minimum rent",()=>{S.minRent=0});
+  if(S.baths) tryIt("with any number of bathrooms",()=>{S.baths=0});
+  if(S.sqft) tryIt("of any size",()=>{S.sqft=0});
+  if(S.movein) tryIt("with any move-in date",()=>{S.movein=""});
+  if(S.floor!=="any") tryIt("on any floor",()=>{S.floor="any"});
   if(QP&&S.q) tryIt(`without “${S.q}”`,()=>{QP=null});
-  const seen=new Set(); RELAX=opts.filter(o=>!seen.has(o.label)&&seen.add(o.label)).sort((a,b)=>a.n-b.n).slice(0,4);
+  const seen=new Set(); RELAX=opts.filter(o=>!seen.has(o.label)&&seen.add(o.label)).sort((a,b)=>b.n-a.n).slice(0,4);
   return RELAX;
 }
 let RELAX=[];
@@ -626,10 +626,10 @@ function render(quiet){
   if(!res.length){
     const all=PROPS.flatMap(p=>p.plans.flatMap(pl=>pl.units.filter(u=>u.price).map(u=>({p,pl,u}))));
     const cheap=all.sort((a,b)=>a.u.price-b.u.price)[0];
-    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for “${esc(S.q)}”. Matches will show up here as they're found.`:PROPS.length?`Nothing among the ${PROPS.length} rentals we could read here matches all of your criteria. Close matches: <button class="linkbtn" data-edit>or change your criteria</button>`:"No posted availability matches yet.";
+    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for “${esc(S.q)}”. Matches will show up here as they're found.`:PROPS.length?`Nothing among the ${PROPS.length} rentals we could read here matches all of your criteria. Loosen one thing, or <button class="linkbtn" data-edit>change your criteria</button>:`:"No posted availability matches yet.";
     const near=PENDING_N?[]:relaxOptions();
-    const msg2=near.length?msg:msg.replace(`Close matches: <button class="linkbtn" data-edit>or change your criteria</button>`,`<button class="linkbtn" data-edit>Change your criteria</button>`);
-    const nearHtml=near.length?`<div class="nearby">${near.map((o,i)=>`<button data-relax="${i}"><b>${o.n} ${o.n===1?"rental":"rentals"}</b> with ${esc(o.label)}</button>`).join("")}</div>`:"";
+    const msg2=near.length?msg:msg.replace(`Loosen one thing, or <button class="linkbtn" data-edit>change your criteria</button>:`,`<button class="linkbtn" data-edit>Change your criteria</button>`);
+    const nearHtml=near.length?`<div class="nearby">${near.map((o,i)=>`<button data-relax="${i}"><b>${o.n} ${o.n===1?"rental":"rentals"}</b> ${esc(o.label)}</button>`).join("")}</div>`:"";
     L.innerHTML=`<div class="empty">${msg2}${nearHtml}</div>`+others;drawMap(res);return}
   L.innerHTML=res.map(r=>{
     const open=OPEN.has(r.p.id), units=r.plans.flatMap(x=>x.m), from=priceFrom(units);
