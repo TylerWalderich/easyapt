@@ -477,58 +477,104 @@ async function attachFeatureKeys(results: any[]) {
   return rows.length;
 }
 
+type Progress = (p: number, msg: string, extra?: Record<string, unknown>) => void;
+
+async function runSearch(area: string, progress: Progress) {
+  const key = areaKey(area);
+  progress(0.03, `Looking up ${area}`);
+  const { data: a } = await sb.from("areas").select("*").eq("area_key", key).maybeSingle();
+  let discoveredNow = false;
+  if (!a || (a.discovery_v ?? 1) < DISCOVERY_V || Date.now() - new Date(a.discovered_at).getTime() > 30 * DAY) {
+    progress(0.06, `Finding apartments, homes and townhomes in ${area}`);
+    await discover(area, key); discoveredNow = true;
+  }
+  let { data: comms } = await sb.from("communities").select("*").contains("area_keys", [key]);
+  comms = comms ?? [];
+  progress(0.2, `Found ${comms.length} rental properties and managers`, { found: comms.length });
+  const stale = comms.filter((c) => !c.detected_at || Date.now() - new Date(c.detected_at).getTime() > 30 * DAY);
+  if (stale.length) {
+    let done = 0;
+    progress(0.21, `Checking ${stale.length} property websites`);
+    await withTimeout(pool(stale, 10, async (c) => {
+      const r = await detect(c);
+      done++; progress(0.21 + 0.24 * (done / stale.length), `Checking property websites (${done} of ${stale.length})`);
+      return r;
+    }), 90000).catch(() => {});
+    comms = (await sb.from("communities").select("*").contains("area_keys", [key])).data ?? [];
+  }
+  const { data: aa } = await sb.from("areas").select("lat,lng,query").eq("area_key", key).maybeSingle();
+  const center: [number, number] | null = aa?.lat != null ? [aa.lat, aa.lng] : null;
+
+  const { data: snaps } = await sb.from("listings").select("source_url, data, scraped_at").like("source_url", "https://www.apartments.com/%");
+  const snapBy = new Map((snaps ?? []).map((s) => [domain(s.data?.site), s]));
+
+  const managers = comms.filter((c) => c.kind === "manager");
+  const sites = comms.filter((c) => c.kind !== "manager");
+  const readable = managers.filter((c) => c.reader && LISTING_READERS[c.reader]);
+  const total = sites.length + readable.length;
+  let read = 0, units = 0;
+  const tick = () => { read++; progress(0.45 + 0.45 * (read / Math.max(1, total)), `Reading available units (${read} of ${total})`, { units }); };
+  progress(0.45, `Reading available units (0 of ${total})`);
+  const [results, homes] = await Promise.all([
+    pool(sites, 10, async (c) => {
+      const base = { place_id: c.place_id, name: c.name, addr: c.addr, lat: c.lat, lng: c.lng, phone: c.phone, site: c.website, platform: c.platform, tours: c.tours ?? [], kind: c.kind ?? "apartment" };
+      let out: any;
+      if (c.reader && READERS[c.reader]) {
+        const r = await readLive(c);
+        if (r.models) out = { ...base, ...r };
+      }
+      if (!out) {
+        const snap = snapBy.get(domain(c.website));
+        out = snap
+          ? { ...base, status: "saved", fetched_at: snap.scraped_at, models: snap.data.models, tours: (snap.data.tours?.length ? snap.data.tours : base.tours) }
+          : { ...base, status: "none", fetched_at: null, models: null };
+      }
+      units += (out.models ?? []).reduce((n: number, m: Model) => n + m[5].length, 0);
+      tick();
+      return out;
+    }),
+    pool(readable, 5, async (c) => { const r = await readManager(c, center).catch(() => []); units += r.length; tick(); return r; }),
+  ]);
+  // A home listed by two managers shows once.
+  const seenAddr = new Set<string>();
+  const homeList = homes.flat().filter((h: any) => { const k = h.addr.toLowerCase().replace(/[^a-z0-9]/g, ""); if (seenAddr.has(k)) return false; seenAddr.add(k); return true; });
+  const all = [...results, ...homeList];
+
+  progress(0.92, `Saving ${units.toLocaleString()} open units`, { units });
+  const nPlans = await attachFeatureKeys(all).catch(() => 0);
+  // Read new floor plans with AI in the background (the smart function only takes plans not yet tagged).
+  if (nPlans && ANON) {
+    // @ts-ignore EdgeRuntime is provided by Supabase
+    EdgeRuntime.waitUntil(fetch(SMART_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, apikey: ANON }, body: JSON.stringify({ action: "tag" }) }).catch(() => {}));
+  }
+  return { area: aa ?? { query: area }, discoveredNow, managers: managers.map((m) => ({ name: m.name, site: m.website, platform: m.platform })), communities: all };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  try {
-    const { area: rawArea } = await req.json().catch(() => ({}));
-    const area = String(rawArea ?? "").trim().slice(0, 80);
-    if (area.length < 2) return json({ error: "Enter a city, neighborhood, or ZIP code." }, 400);
-    const key = areaKey(area);
-
-    const { data: a } = await sb.from("areas").select("*").eq("area_key", key).maybeSingle();
-    let discoveredNow = false;
-    if (!a || (a.discovery_v ?? 1) < DISCOVERY_V || Date.now() - new Date(a.discovered_at).getTime() > 30 * DAY) { await discover(area, key); discoveredNow = true; }
-
-    let { data: comms } = await sb.from("communities").select("*").contains("area_keys", [key]);
-    comms = comms ?? [];
-    const stale = comms.filter((c) => !c.detected_at || Date.now() - new Date(c.detected_at).getTime() > 30 * DAY);
-    if (stale.length) {
-      await withTimeout(pool(stale, 10, detect), 90000).catch(() => {});
-      comms = (await sb.from("communities").select("*").contains("area_keys", [key])).data ?? [];
-    }
-    const { data: aa } = await sb.from("areas").select("lat,lng,query").eq("area_key", key).maybeSingle();
-    const center: [number, number] | null = aa?.lat != null ? [aa.lat, aa.lng] : null;
-
-    const { data: snaps } = await sb.from("listings").select("source_url, data, scraped_at").like("source_url", "https://www.apartments.com/%");
-    const snapBy = new Map((snaps ?? []).map((s) => [domain(s.data?.site), s]));
-
-    const managers = comms.filter((c) => c.kind === "manager");
-    const sites = comms.filter((c) => c.kind !== "manager");
-    const [results, homes] = await Promise.all([
-      pool(sites, 10, async (c) => {
-        const base = { place_id: c.place_id, name: c.name, addr: c.addr, lat: c.lat, lng: c.lng, phone: c.phone, site: c.website, platform: c.platform, tours: c.tours ?? [], kind: c.kind ?? "apartment" };
-        if (c.reader && READERS[c.reader]) {
-          const r = await readLive(c);
-          if (r.models) return { ...base, ...r };
+  const { area: rawArea, stream } = await req.json().catch(() => ({}));
+  const area = String(rawArea ?? "").trim().slice(0, 80);
+  if (area.length < 2) return json({ error: "Enter a city, neighborhood, or ZIP code." }, 400);
+  // stream: true sends one JSON line per step ({p, msg}), then {result} — this drives the site's progress bar.
+  if (stream) {
+    const enc = new TextEncoder();
+    const body = new ReadableStream({
+      async start(ctrl) {
+        const send = (o: unknown) => { try { ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n")); } catch { /* client left */ } };
+        let last = 0;
+        try {
+          const result = await runSearch(area, (p, msg, extra) => { if (p >= last) { last = p; send({ p: Math.round(p * 1000) / 1000, msg, ...(extra ?? {}) }); } });
+          send({ p: 1, msg: "Done", result });
+        } catch (e) {
+          send({ error: e instanceof Error ? e.message : String(e) });
         }
-        const snap = snapBy.get(domain(c.website));
-        if (snap) return { ...base, status: "saved", fetched_at: snap.scraped_at, models: snap.data.models, tours: (snap.data.tours?.length ? snap.data.tours : base.tours) };
-        return { ...base, status: "none", fetched_at: null, models: null };
-      }),
-      pool(managers.filter((c) => c.reader && LISTING_READERS[c.reader]), 5, (c) => readManager(c, center).catch(() => [])),
-    ]);
-    // A home listed by two managers shows once.
-    const seenAddr = new Set<string>();
-    const homeList = homes.flat().filter((h: any) => { const k = h.addr.toLowerCase().replace(/[^a-z0-9]/g, ""); if (seenAddr.has(k)) return false; seenAddr.add(k); return true; });
-    const all = [...results, ...homeList];
-
-    const nPlans = await attachFeatureKeys(all).catch(() => 0);
-    // Read new floor plans with AI in the background (the smart function only takes plans not yet tagged).
-    if (nPlans && ANON) {
-      // @ts-ignore EdgeRuntime is provided by Supabase
-      EdgeRuntime.waitUntil(fetch(SMART_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, apikey: ANON }, body: JSON.stringify({ action: "tag" }) }).catch(() => {}));
-    }
-    return json({ area: aa ?? { query: area }, discoveredNow, managers: managers.map((m) => ({ name: m.name, site: m.website, platform: m.platform })), communities: all });
+        try { ctrl.close(); } catch { /* already closed */ }
+      },
+    });
+    return new Response(body, { headers: { ...CORS, "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
+  }
+  try {
+    return json(await runSearch(area, () => {}));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

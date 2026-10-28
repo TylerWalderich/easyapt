@@ -244,12 +244,31 @@ tr.match td.u{box-shadow:inset 3px 0 0 var(--glow)}
 .cr-actions .go{min-height:50px;border-radius:999px;padding:0 28px;font-size:16px}
 .cr-status{font-size:13px;color:#6c6d72;display:inline-flex;align-items:center}
 
+/* ---------- Loading screen: progress reported by the search as it works ---------- */
+.loader{max-width:560px;color:#fff;text-align:left;text-shadow:0 1px 18px rgba(0,0,0,.35)}
+.ld-area{margin:0 0 6px;font-size:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.8)}
+.ld-title{margin:0 0 22px;font-size:clamp(28px,5vw,44px);font-weight:700;letter-spacing:-.025em;line-height:1.05}
+.ld-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.22);overflow:hidden;backdrop-filter:blur(4px)}
+.ld-bar span{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#fff 0%,#f2a978 100%);transition:width .35s ease-out}
+.ld-row{display:flex;justify-content:space-between;gap:16px;margin-top:12px;font-size:15px;color:rgba(255,255,255,.92)}
+#ld-pct{font-variant-numeric:tabular-nums;font-weight:600}
+.ld-steps{list-style:none;margin:26px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-size:13px;color:rgba(255,255,255,.55)}
+.ld-steps li{border-top:2px solid rgba(255,255,255,.22);padding-top:8px;transition:color .3s,border-color .3s}
+.ld-steps li.on{color:#fff;border-color:#f2a978}
+.ld-steps li.done{color:rgba(255,255,255,.85);border-color:#fff}
+.ld-err{margin-top:20px;background:rgba(255,255,255,.96);color:#17181b;text-shadow:none;border-radius:14px;padding:14px 16px;font-size:15px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.ld-err button{border:0;border-radius:999px;padding:8px 16px;font:600 14px var(--f-body);cursor:pointer;background:#17181b;color:#fff}
+.ld-err button.ghost{background:none;color:#17181b;border:1px solid #d4d3ce}
+@media (max-width:760px){.ld-steps{grid-template-columns:repeat(2,1fr)}.hero-wrap .hero:has(#step3:not([hidden])){justify-content:center;padding-top:0}}
+@media (prefers-reduced-motion: reduce){.ld-bar span{transition:none}}
+
 /* ---------- Home hero: Lady Bird Lake at dusk ---------- */
 html{overflow-x:clip}
 .hero-wrap{position:relative;isolation:isolate;width:100vw;margin-left:calc(50% - 50vw);min-height:100vh;min-height:100dvh;display:flex;color:#fff;background:#1b2140 url("hero.jpg") center/cover no-repeat}
 .hero-video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
 .hero-shade{position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(10,14,32,.38) 0%,rgba(10,14,32,0) 22%,rgba(10,14,32,0) 70%,rgba(10,14,32,.25) 100%)}
 .hero-wrap:has(#step2:not([hidden])) .hero-shade{background:rgba(10,14,32,.3)}
+.hero-wrap:has(#step3:not([hidden])) .hero-shade{background:linear-gradient(180deg,rgba(10,14,32,.25),rgba(10,14,32,.45))}
 .hero-inner{gap:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-top:calc(20px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .hero-wrap .home-bar .logo{color:#fff}
 .hero-wrap .hero{flex:1;justify-content:center;align-items:center;padding:4vh 0 9vh}
@@ -353,6 +372,15 @@ html{overflow-x:clip}
           </div>
           <div class="cr-actions"><button type="submit" class="go" id="showapts">Show apartments</button><span class="cr-status" id="cr-status" aria-live="polite"></span></div>
         </form>
+
+        <div id="step3" class="step loader" hidden aria-live="polite">
+          <p class="ld-area" id="ld-area"></p>
+          <h2 class="ld-title" id="ld-title">Finding rentals</h2>
+          <div class="ld-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="ld-bar"><span id="ld-fill"></span></div>
+          <div class="ld-row"><span id="ld-msg">Starting</span><span id="ld-pct">0%</span></div>
+          <ol class="ld-steps" id="ld-steps"><li>Find rentals</li><li>Check websites</li><li>Read open units</li><li>Match your criteria</li></ol>
+          <div class="ld-err" id="ld-err" hidden></div>
+        </div>
       </div>
     </div>
   </div>
@@ -857,14 +885,62 @@ $("viewtoggle").addEventListener("click",()=>setView(document.body.dataset.view=
 /* ---------- Search flow: location -> criteria (on the video) -> results ---------- */
 function fmtTime(d){return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
 let PENDING=null, PENDING_AREA="", READY_AREA="";
+// Progress reported by the search while it runs: {p: 0..1, msg}. The search streams one line per step.
+let PROG={p:0,msg:"Starting",at:Date.now()};
+function setProg(p,msg){ if(p<PROG.p&&p<1) return; PROG={p,msg:msg||PROG.msg,at:Date.now()}; updateLoader(); }
 function startSearch(area){
   if(PENDING&&PENDING_AREA===area) return PENDING;
-  PENDING_AREA=area;
-  PENDING=fetch(`${SB_URL}/functions/v1/search`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({area})})
-    .then(r=>r.json()).then(res=>{ if(res.error) throw new Error(res.error); return res; });
+  PENDING_AREA=area; PROG={p:0,msg:"Starting",at:Date.now()};
+  PENDING=(async()=>{
+    const r=await fetch(`${SB_URL}/functions/v1/search`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({area,stream:true})});
+    if(!r.ok||!r.body){ const j=await r.json().catch(()=>({})); throw new Error(j.error||`HTTP ${r.status}`); }
+    const reader=r.body.getReader(), dec=new TextDecoder(); let buf="", result=null;
+    for(;;){
+      const {value,done}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf("\n"))>=0){
+        const line=buf.slice(0,i).trim(); buf=buf.slice(i+1); if(!line) continue;
+        let m; try{ m=JSON.parse(line) }catch(e){ continue }
+        if(m.error) throw new Error(m.error);
+        if(m.result) result=m.result;
+        if(PENDING_AREA===area&&typeof m.p==="number") setProg(Math.min(m.p,.92),m.msg);
+      }
+    }
+    if(!result) throw new Error("the search stopped early");
+    return result;
+  })();
   PENDING.then(()=>{ if(PENDING_AREA===area) $("cr-status").textContent="Ready"; },()=>{});
   return PENDING;
 }
+/* ---------- Loading screen ---------- */
+let SHOWN=0, LD_TIMER=null;
+function updateLoader(){
+  const st=$("step3"); if(!st||st.hidden) return;
+  // Ease toward the last reported step, creeping a little while a slow step runs (never past the next step).
+  const secs=(Date.now()-PROG.at)/1000;
+  const target=PROG.p>=1?1:Math.min(PROG.p+Math.min(.035,secs*.004),.985);
+  SHOWN=Math.max(SHOWN,SHOWN+(target-SHOWN)*.25);
+  const pct=Math.round(SHOWN*100);
+  $("ld-fill").style.width=pct+"%"; $("ld-pct").textContent=pct+"%"; $("ld-bar").setAttribute("aria-valuenow",pct);
+  $("ld-msg").textContent=PROG.msg;
+  const stage=PROG.p<.2?0:PROG.p<.45?1:PROG.p<.92?2:3;
+  [...$("ld-steps").children].forEach((li,i)=>{li.className=i<stage||PROG.p>=1?"done":i===stage?"on":""});
+}
+function showLoader(){
+  $("ld-area").textContent=S.area; $("ld-err").hidden=true; $("ld-steps").hidden=false;
+  $("ld-title").textContent=S.kind==="house"?"Finding rental homes":S.kind==="townhome"?"Finding townhomes":S.kind==="apartment"?"Finding apartments":"Finding rentals";
+  SHOWN=Math.min(PROG.p,.9); showStep(3); updateLoader();
+  clearInterval(LD_TIMER); LD_TIMER=setInterval(updateLoader,120);
+}
+function hideLoader(){ clearInterval(LD_TIMER); }
+function loaderError(msg){
+  hideLoader();
+  const e=$("ld-err"); e.hidden=false;
+  e.innerHTML=`<span>The search didn't finish (${esc(msg)}).</span><button type="button" id="ld-retry">Try again</button><button type="button" class="ghost" id="ld-back">Back</button>`;
+  $("ld-retry").onclick=()=>{PENDING=null;$("step2").requestSubmit()};
+  $("ld-back").onclick=()=>showCriteria();
+}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function applyResults(res){
   const comms=res.communities||[];
   OTHERS=comms.filter(c=>!(c.models&&c.models.length)&&c.site&&c.lat!=null).sort((a,b)=>a.name.localeCompare(b.name));
@@ -896,7 +972,7 @@ function fillCriteria(){
 }
 function showStep(n){
   $("app").hidden=true; $("home").hidden=false;
-  $("step1").hidden=n!==1; $("step2").hidden=n!==2;
+  $("step1").hidden=n!==1; $("step2").hidden=n!==2; $("step3").hidden=n!==3; if(n!==3) hideLoader();
   if(n===1) $("h-area").focus();
 }
 function showHome(){ showStep(1); try{history.replaceState(null,"",location.pathname+location.search)}catch(e){} }
@@ -922,16 +998,19 @@ $("step2").addEventListener("submit",async e=>{
   S.sel=null; $("detail").hidden=true; POLL_START=0; clearTimeout(POLL);
   const parsing=parseMust(S.q);
   $("searchsum").textContent=critSummary();
+  const needFetch=READY_AREA!==S.area;
+  showLoader();
+  if(needFetch){
+    try{ applyResults(await startSearch(S.area)); }
+    catch(err){ PROPS=[];OTHERS=[]; loaderError(err.message||"network error"); return; }
+  }
+  setProg(.94,S.q?`Matching “${S.q}” against every floor plan`:"Matching your criteria");
+  await parsing; await loadFeatures(allKeys()); applyAIKinds();
+  setProg(1,"Done"); await wait(needFetch?450:250);
+  hideLoader();
   $("home").hidden=true; $("app").hidden=false; setView("list");
   try{history.pushState({r:1},"","#results")}catch(err){}
   window.scrollTo(0,0); try{initMap()}catch(err){console.warn("map",err)}
-  if(READY_AREA!==S.area){
-    $("list").innerHTML='<div class="empty"><span class="checking"></span>Checking apartment, home, and townhome listings. A first search in a new area can take up to a minute.</div>';
-    $("count").textContent=""; $("updated").textContent="";
-    try{ applyResults(await startSearch(S.area)); }
-    catch(err){ PROPS=[];OTHERS=[]; $("list").innerHTML=`<div class="empty">The search didn't finish (${esc(err.message||"network error")}). <button class="linkbtn" id="retry">Try again</button></div>`; $("retry")&&$("retry").addEventListener("click",()=>{PENDING=null;$("step2").requestSubmit()}); return; }
-  }
-  await parsing; await loadFeatures(allKeys()); applyAIKinds();
   render(); NEED_FIT=true;
   if(MAP_READY) fitAll();
   watchFeatures();
