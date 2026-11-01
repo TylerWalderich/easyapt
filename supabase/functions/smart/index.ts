@@ -28,11 +28,11 @@ export const TAGS = [
 const OUTDOOR = ["none", "balcony", "patio", "terrace", "rooftop", "yard", "courtyard", "porch"];
 const SIZES = ["none", "small", "medium", "large"];
 
-async function claude(content: unknown[], system: string, maxTokens = 2500): Promise<string> {
+async function claude(content: unknown[], system: string, maxTokens = 2500, messages?: unknown[]): Promise<string> {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": AKEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages: [{ role: "user", content }] }),
+    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages: messages ?? [{ role: "user", content }] }),
   });
   const j = await r.json();
   if (!r.ok) throw new Error(`${r.status} ${j?.error?.message ?? ""}`.slice(0, 300));
@@ -164,6 +164,60 @@ async function parse(q: string) {
   return parsed;
 }
 
+// ---------- Furniture Test ----------
+// Room sizes come only from dimension labels printed on the floor plan, so the to-scale planner is exact.
+const ROOMS_SYSTEM = `You read the printed room dimension labels on a rental floor plan.
+Reply with one JSON object and nothing else:
+{"rooms":[{"name":"Primary bedroom","label":"12'9\\" x 11'0\\"","w_ft":12.75,"d_ft":11.0}],"note":"anything the renter should know, or empty"}
+Include every room, closet, balcony or patio that has a printed dimension label; skip rooms without one. Name rooms the way a renter would (Living room, Bedroom 2, Walk-in closet, Balcony). w_ft is the first number, d_ft the second, converted to decimal feet. Never invent a dimension.`;
+
+function parseFeet(v: unknown) { const n = Number(v); return Number.isFinite(n) && n > 1 && n < 80 ? Math.round(n * 100) / 100 : null; }
+
+async function rooms(key: string) {
+  const { data: row } = await sb.from("plan_features").select("key,image_url,rooms,plan").eq("key", key).maybeSingle();
+  if (!row) throw new Error("floor plan not found");
+  if (row.rooms) return { rooms: row.rooms.list ?? [], note: row.rooms.note ?? "", plan: row.plan, image: row.image_url };
+  if (!row.image_url) return { rooms: [], note: "This floor plan has no drawing to measure.", plan: row.plan, image: null };
+  const img = await imagePart(row.image_url);
+  if (!img) return { rooms: [], note: "The floor plan drawing couldn't be loaded.", plan: row.plan, image: row.image_url };
+  const p = firstJson(await claude([img, { type: "text", text: "List the labeled room dimensions on this floor plan." }], ROOMS_SYSTEM, 2000));
+  const list = (Array.isArray(p.rooms) ? p.rooms : []).map((r: any) => ({
+    name: String(r.name ?? "Room").slice(0, 40), label: String(r.label ?? "").slice(0, 30), w_ft: parseFeet(r.w_ft), d_ft: parseFeet(r.d_ft),
+  })).filter((r: any) => r.w_ft && r.d_ft).slice(0, 20);
+  const note = String(p.note ?? "").slice(0, 200);
+  await sb.from("plan_features").update({ rooms: { list, note } }).eq("key", key);
+  return { rooms: list, note, plan: row.plan, image: row.image_url };
+}
+
+const FURN_SYSTEM = (ctx: string) => `You are the Furniture Test assistant on EasyApt, a rental search site. A renter wants to know whether their furniture fits a specific floor plan.
+${ctx}
+When the renter describes, photographs or films furniture, identify each piece and its size in inches (width x depth x height; width is the long side seen from the front). Use the size they give if they give one. Otherwise estimate from the photo using standard sizes (queen bed 60x80, king 76x80, full 54x75, twin 38x75, California king 72x84; mattress sizes plus the frame if one is visible) and mark it estimated so they can measure to confirm. Put each new piece in the room the renter names, or the room where it normally goes.
+Use the current layout and fit check above when answering fit questions: say exactly what fits, what doesn't, and the remaining walking room in inches. Renters usually want about 30-36 inches of walking space around beds and in front of sofas.
+Keep replies short and friendly, at most 4 sentences. Never claim certainty about a size you estimated.
+Reply with one JSON object and nothing else:
+{"reply":"text shown to the renter","add":[{"name":"King bed","w":76,"d":80,"h":14,"room":"exact room name from the list","estimated":true}]}
+"add" lists only NEW pieces from the renter's latest message; leave it empty otherwise.`;
+
+async function furniture(b: any) {
+  const ctx = String(b.context ?? "").slice(0, 4000);
+  const msgs = (Array.isArray(b.messages) ? b.messages : []).slice(-16).map((m: any) => {
+    const content: unknown[] = [];
+    for (const img of (Array.isArray(m.images) ? m.images : []).slice(0, 4)) {
+      const data = String(img).replace(/^data:image\/\w+;base64,/, "");
+      if (data.length < 1_400_000) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } });
+    }
+    content.push({ type: "text", text: String(m.text ?? "").slice(0, 2000) || "(photo)" });
+    return { role: m.role === "assistant" ? "assistant" : "user", content: m.role === "assistant" ? String(m.text ?? "").slice(0, 2000) : content };
+  });
+  if (!msgs.length || msgs[msgs.length - 1].role !== "user") throw new Error("no question");
+  const p = firstJson(await claude([], FURN_SYSTEM(ctx), 1500, msgs));
+  const add = (Array.isArray(p.add) ? p.add : []).slice(0, 12).map((x: any) => ({
+    name: String(x.name ?? "Piece").slice(0, 40), w: Math.max(4, Math.min(240, +x.w || 0)), d: Math.max(4, Math.min(240, +x.d || 0)),
+    h: Math.max(0, Math.min(144, +x.h || 0)), room: String(x.room ?? "").slice(0, 40), estimated: !!x.estimated,
+  })).filter((x: any) => x.w && x.d);
+  return { reply: String(p.reply ?? "").slice(0, 1200), add };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
@@ -171,6 +225,8 @@ Deno.serve(async (req) => {
     const b = await req.json().catch(() => ({}));
     if (b.action === "parse") return json(await parse(String(b.q ?? "")));
     if (b.action === "tag") return json(await tagBatch(Math.min(Number(b.budget) || 110000, 120000)));
+    if (b.action === "rooms") return json(await rooms(String(b.key ?? "")));
+    if (b.action === "furniture") return json(await furniture(b));
     if (b.action === "status") {
       const keys = (Array.isArray(b.keys) ? b.keys : []).slice(0, 3000).map(String);
       let read = 0;

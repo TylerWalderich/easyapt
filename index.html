@@ -140,6 +140,10 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--surfac
 .tour:has(.fpimg) .tour-bar{left:12px;top:12px;bottom:auto;right:auto}
 .tour .tour-bar{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
 .tour .tour-top{position:absolute;left:12px;top:12px;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 24px)}
+.ftest{position:absolute;right:12px;top:12px;z-index:2;display:inline-flex;align-items:center;gap:6px;background:#f2a978;color:#17181b;border-radius:999px;padding:6px 12px;font:700 12.5px var(--f-body);text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.ftest:hover{filter:brightness(1.05)}
+.ftest svg{width:16px;height:16px}
+.tour .tour-top{max-width:calc(100% - 170px)}
 .tchip{border:0;background:rgba(23,24,27,.72);color:#fff;border-radius:999px;padding:5px 11px;font:600 12px var(--f-body);cursor:pointer;backdrop-filter:blur(6px)}
 .tchip.on{background:#fff;color:#17181b}
 .tour:has(.fpimg) .tchip.on{background:var(--page);color:var(--fg)}
@@ -766,6 +770,11 @@ function findPlan(key){const [pid]=key.split(":");const p=PROPS.find(x=>x.id===p
 const chip=s=>`<span class="chip ${s}">${s==="confirmed"?"Confirmed":s==="inferred"?"Likely":"Not listed"}</span>`;
 const floorTxt=u=>u.floor==null?"Unknown":ord(u.floor);
 
+// Furniture Test page for this floor plan (opens in a new tab).
+function ftUrl(p,pl,tour){
+  const q=new URLSearchParams({k:pl.fk||"",t:tour||"",p:pl.code,n:p.name,a:p.addr||"",b:String(pl.beds),ba:String(pl.baths),s:String(pl.sqft||""),img:pl.img||""});
+  return "furniture.html?"+q.toString();
+}
 function featHtml(p,pl){
   const f=FEAT[pl.fk];
   if(!f&&!p.desc) return "";
@@ -793,6 +802,7 @@ function renderDetail(){
       <div class="tour${tour?" has":""}">
         ${tour&&info?`<iframe src="${esc(info.src)}" allow="${info.allow}" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" title="${esc(info.kind)} of ${esc(pl.code)}"></iframe>
           <div class="tour-top">${allTours.length>1?allTours.map((t,i)=>`<button class="tchip${t===tour?" on":""}" data-tour="${i}">${t===planTour?esc(pl.code)+" "+tourKind(t).toLowerCase():tourKind(t)+(allTours.length>2?" "+(i+(planTour?0:1)):"")}</button>`).join(""):`<span class="tchip on">${isComm?"Community "+info.kind.toLowerCase():info.kind}</span>`}</div>
+          <a class="ftest" href="${esc(ftUrl(p,pl,tour))}" target="_blank" rel="noopener" title="See if your furniture fits this floor plan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6M4 18h16M4 18v2M20 18v2M7 10V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Furniture Test</a>
           <div class="tour-bar"><a class="btn" href="${esc(tour)}" target="_blank" rel="noopener">Open tour</a>${mine?'<button class="btn ghost" id="rmtour">Remove</button>':""}</div>`
         :pl.img?`<img class="fpimg" src="${esc(pl.img)}" alt="${p.listing?"Photo of "+esc(p.name):"Floor plan "+esc(pl.code)}" loading="lazy"><div class="tour-bar"><span class="tchip on">${p.listing?"Listing photo":"Floor plan, no tour posted"}</span></div>`
         :`<h4>No 3D tour listed for this layout</h4>
