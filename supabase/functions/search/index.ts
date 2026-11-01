@@ -28,7 +28,7 @@ type Model = [string, number, number, number, string, Unit[], string, string?];
 type Listing = { id: string; title: string; addr: string; beds: number; baths: number; sqft: number; rent: number; avail: string; img: string; url: string; kind: string; desc: string };
 const SMART_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/smart`;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const DISCOVERY_V = 2;
+const DISCOVERY_V = 3;
 
 // ---------- helpers ----------
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -80,14 +80,23 @@ function kindOf(name: string, site: string | null, types: string[]): string {
 }
 async function discover(area: string, key: string) {
   if (!GKEY) throw new Error("Google Places key is not set (GOOGLE_PLACES_KEY)");
-  const [apts, towns, homes, mgrs] = await Promise.all([
+  // Google returns at most 60 places per query, so a big city needs several angles to reach most complexes.
+  const extra = (q: string, n: number) => places(q, n).catch(() => [] as any[]);
+  const [apts, more, towns, homes, mgrs] = await Promise.all([
     places(`apartment complexes in ${area}`, 3),
-    places(`townhomes for rent in ${area}`, 1).catch(() => []),
+    Promise.all([
+      extra(`apartments for rent in ${area}`, 3),
+      extra(`luxury apartments in ${area}`, 3),
+      extra(`loft apartments in ${area}`, 2),
+      extra(`downtown apartments ${area}`, 1),
+      extra(`new apartment communities in ${area}`, 1),
+    ]).then((x) => x.flat()),
+    places(`townhomes for rent in ${area}`, 2).catch(() => []),
     places(`rental homes community in ${area}`, 1).catch(() => []),
     places(`property management company in ${area}`, 1).catch(() => []),
   ]);
   const seen = new Map<string, { p: any; kind: string }>();
-  for (const p of [...apts, ...towns, ...homes]) {
+  for (const p of [...apts, ...more, ...towns, ...homes]) {
     const n = String(p.displayName?.text ?? ""), t: string[] = p.types ?? [];
     if (NOT_RENTAL.test(n) || t.some((x) => /mobile_home_park|rv_park|hotel|general_contractor|home_builder/.test(x))) continue;
     const looksRental = t.some((x) => /apartment|housing_complex|condominium/.test(x)) ||
@@ -496,11 +505,11 @@ async function runSearch(area: string, progress: Progress) {
   if (stale.length) {
     let done = 0;
     progress(0.21, `Checking ${stale.length} property websites`);
-    await withTimeout(pool(stale, 10, async (c) => {
+    await withTimeout(pool(stale, 16, async (c) => {
       const r = await detect(c);
       done++; progress(0.21 + 0.24 * (done / stale.length), `Checking property websites (${done} of ${stale.length})`);
       return r;
-    }), 90000).catch(() => {});
+    }), 75000).catch(() => {});
     comms = (await sb.from("communities").select("*").contains("area_keys", [key])).data ?? [];
   }
   const { data: aa } = await sb.from("areas").select("lat,lng,query").eq("area_key", key).maybeSingle();

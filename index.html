@@ -626,10 +626,17 @@ function planKind(p,pl){
   // The property's own plan name wins ("TH", "Townhome"); then the AI's reading of the floor plan.
   if(TH_NAME.test(pl.code)) return "townhome";
   if(f.kind==="loft") return "loft";
-  if(f.kind==="townhome") return "townhome";
-  if(/\bloft\b/i.test(pl.code)&&p.kind==="apartment") return "loft";
+  if(f.kind==="townhome"||f.kind==="house") return f.kind;
+  if(p.kind!=="apartment") return p.kind;
+  // Plan names like "B2 w/Loft", "Loft A", "Mezzanine"; or the AI saw a loft / open-to-below space in an apartment.
+  if(LOFT_NAME.test(pl.code)) return "loft";
+  if((f.tags||[]).includes("loft")||LOFT_TEXT.test(f.summary||"")) return "loft";
   return p.kind;
 }
+const LOFT_NAME=/loft|mezz|penthouse|\bPH\d*\b|split.?level|two.?stor(e?y)|2.?stor(e?y)|duplex/i;
+const LOFT_TEXT=/\bloft\b|mezzanine|open[- ]to[- ]below|double[- ]height|two[- ]level|two[- ]story|spiral stair|interior stair|upper level|\b(1[6-9]|2\d)['’ -]?(ft|foot|feet)?\s*ceiling/i;
+// Before the AI has read a plan we can't tell its type unless the name says so.
+function kindKnown(p,pl){ return p.listing||!!FEAT[pl.fk]||TH_NAME.test(pl.code)||LOFT_NAME.test(pl.code)||!pl.fk; }
 function kindWanted(){ return S.kind!=="any"?[S.kind]:(QP?.kinds||[]); }
 let PENDING_N=0;
 function results(){
@@ -638,8 +645,12 @@ function results(){
     const want=kindWanted();
     const plans=[];
     for(const pl of p.plans){
-      if(want.length&&!want.includes(planKind(p,pl))) continue;
       if(!planMatches(pl)) continue;
+      if(want.length&&!want.includes(planKind(p,pl))){
+        // An apartment plan not read yet might still be a loft or townhome: count it as pending, not a miss.
+        if(!kindKnown(p,pl)&&p.kind==="apartment"&&want.some(k=>k==="loft"||k==="townhome")&&pl.units.some(u=>unitMatches(u,p))) PENDING_N++;
+        continue;
+      }
       const mm=mustMatch(p,pl);
       if(mm.pending){PENDING_N++;continue}
       if(!mm.ok) continue;
@@ -675,7 +686,7 @@ function kickTagger(){
 function watchFeatures(){
   clearTimeout(POLL);
   const missing=allKeys().filter(k=>!FEAT[k]);
-  if(!missing.length||(S.kind==="any"&&(!QP||!(QP.groups||[]).length))) return;
+  if(!missing.length||(!kindWanted().length&&(!QP||!(QP.groups||[]).length))) return;
   if(!POLL_START) POLL_START=Date.now();
   if(Date.now()-POLL_START>6*60e3) return;
   kickTagger();
@@ -766,7 +777,8 @@ function render(quiet){
   const res=results();
   const nu=res.reduce((a,r)=>a+r.plans.reduce((b,x)=>b+x.m.length,0),0);
   const tagged=allKeys().filter(k=>FEAT[k]).length, totalK=allKeys().length;
-  const reading=PENDING_N&&QP?`<div class="reading"><span class="checking"></span>Reading floor plans for “${esc(S.q)}”: ${tagged.toLocaleString()} of ${totalK.toLocaleString()} checked. More matches will appear.</div>`:"";
+  const what=S.q?`“${esc(S.q)}”`:kindWanted().map(k=>(KIND_PL[k]||k).toLowerCase()).join(" and ");
+  const reading=PENDING_N?`<div class="reading"><span class="checking"></span>Reading floor plans for ${what}: ${tagged.toLocaleString()} of ${totalK.toLocaleString()} checked. More matches will appear.</div>`:"";
   $("count").innerHTML=(res.length?`<span><b>${res.length} ${res.length===1?"rental":"rentals"}</b> · ${nu.toLocaleString()} open ${nu===1?"unit":"units"}</span><select class="sort" id="sort" aria-label="Sort"><option value="price">Lowest price</option><option value="price-desc">Highest price</option><option value="units">Most open units</option><option value="name">Name</option></select>`:"")+reading;
   if($("sort")) $("sort").value=S.sort||"price";
   const L=$("list");
@@ -774,7 +786,7 @@ function render(quiet){
   if(!res.length){
     const all=PROPS.flatMap(p=>p.plans.flatMap(pl=>pl.units.filter(u=>u.price).map(u=>({p,pl,u}))));
     const cheap=all.sort((a,b)=>a.u.price-b.u.price)[0];
-    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for “${esc(S.q)}”. Matches will show up here as they're found.`:PROPS.length?`Nothing among the ${PROPS.length} rentals we could read here matches all of your criteria. Loosen one thing, or <button class="linkbtn" data-edit>change your criteria</button>:`:"No posted availability matches yet.";
+    const msg=PENDING_N?`<span class="checking"></span>Reading floor plans for ${what}. Matches will show up here as they're found.`:PROPS.length?`Nothing among the ${PROPS.length} rentals we could read here matches all of your criteria. Loosen one thing, or <button class="linkbtn" data-edit>change your criteria</button>:`:"No posted availability matches yet.";
     const near=PENDING_N?[]:relaxOptions();
     const msg2=near.length?msg:msg.replace(`Loosen one thing, or <button class="linkbtn" data-edit>change your criteria</button>:`,`<button class="linkbtn" data-edit>Change your criteria</button>`);
     const nearHtml=near.length?`<div class="nearby">${near.map((o,i)=>`<button data-relax="${i}"><b>${o.n} ${o.n===1?"rental":"rentals"}</b> ${esc(o.label)}</button>`).join("")}</div>`:"";
