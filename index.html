@@ -241,6 +241,21 @@ tr.match td.u{box-shadow:inset 3px 0 0 var(--glow)}
 .go{flex:none;border:0;background:#17181b;color:#fff;border-radius:10px;padding:0 30px;font:700 17px var(--f-body);cursor:pointer;min-height:54px}
 .go:hover{filter:brightness(1.15)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.modes{display:inline-flex;gap:4px;padding:4px;margin-bottom:12px;border-radius:999px;background:rgba(15,17,22,.45);backdrop-filter:blur(8px)}
+.modes button{border:0;background:none;color:#fff;font:600 14.5px var(--f-body);padding:9px 16px;border-radius:999px;cursor:pointer;opacity:.85}
+.modes button:hover{opacity:1}
+.modes button[aria-selected="true"]{background:#fff;color:#17181b;opacity:1}
+.search.near{flex-wrap:wrap;row-gap:4px}
+.search.near .nplace{flex:1 1 260px;display:flex;align-items:center;gap:10px;min-width:0}
+.ndist{display:flex;align-items:center;gap:6px;flex:none;border-left:1px solid #e3e2dd;padding-left:12px}
+.ndist span{color:#5b6661;font-size:15px}
+.search .ndist input{width:40px;flex:none;text-align:right;padding:12px 0;font-weight:600;-moz-appearance:textfield}
+.search .ndist input::-webkit-inner-spin-button{-webkit-appearance:none}
+.ndist select{border:0;background:transparent;color:#1c2421;font:500 16px var(--f-body);padding:8px 2px;cursor:pointer;color-scheme:light}
+.ndist select:focus{outline:2px solid #17181b;border-radius:6px}
+.dist{color:var(--fg);font-weight:600}
+.lm{width:30px;height:30px;border-radius:50%;background:#17181b;color:#fff;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.lm svg{width:16px;height:16px}
 .home-err{color:#ffd76a;font-size:15px;min-height:1.4em;margin-top:10px;text-shadow:0 1px 8px rgba(0,0,0,.4)}
 
 .criteria{max-width:640px;background:rgba(255,255,255,.97);color:#17181b;color-scheme:light;border-radius:20px;padding:22px 26px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35);backdrop-filter:blur(10px)}
@@ -312,6 +327,8 @@ html{overflow-x:clip}
   .search{padding:6px 6px 6px 14px;border-radius:12px}
   .search input{font-size:17px;padding:10px 0}
   .go{padding:0 18px;min-height:48px;font-size:16px}
+  .search.near .nplace{flex-basis:100%}
+  .ndist{border-left:0;padding-left:0;flex:1}
   .hero-wrap .hero{justify-content:flex-start;padding:10vh 0 0}
   .hero-wrap .hero:has(#step2:not([hidden])){padding-top:18px}
   .criteria{padding:18px 18px 20px;border-radius:18px}
@@ -383,10 +400,29 @@ html{overflow-x:clip}
       <div class="hero">
         <div id="step1" class="step">
           <h2 class="sr">Search apartments</h2>
+          <div class="modes" role="tablist" aria-label="Search by">
+            <button type="button" role="tab" id="m-city" aria-selected="true" aria-controls="homeform">City or town</button>
+            <button type="button" role="tab" id="m-near" aria-selected="false" aria-controls="nearform">Near a place</button>
+          </div>
           <form class="search" id="homeform" autocomplete="off" role="search">
             <label class="sr" for="h-area">Location</label>
             <svg class="pin-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             <input id="h-area" placeholder="Search location" enterkeyhint="search" autofocus>
+            <button class="go" type="submit">Search</button>
+          </form>
+          <form class="search near" id="nearform" autocomplete="off" role="search" hidden>
+            <div class="nplace">
+              <svg class="pin-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
+              <label class="sr" for="n-place">Place</label>
+              <input id="n-place" placeholder="Work, school, or any address" enterkeyhint="next">
+            </div>
+            <div class="ndist">
+              <span>within</span>
+              <label class="sr" for="n-dist">Distance</label>
+              <input id="n-dist" type="number" inputmode="numeric" min="1" max="60" value="20">
+              <label class="sr" for="n-unit">Unit</label>
+              <select id="n-unit"><option value="minutes">min drive</option><option value="miles">miles</option></select>
+            </div>
             <button class="go" type="submit">Search</button>
           </form>
           <div class="home-err" id="homeerr" aria-live="polite"></div>
@@ -510,7 +546,8 @@ function buildProps(rows){
     const used=new Set(plans.map(pl=>pl.tour).filter(Boolean));
     const communityTours=[...new Set(tours.filter(t=>!used.has(t[0])&&!t[1]).map(t=>t[0]))]; // tours labeled for a specific plan stay with that plan
     return {id,name:d.name,addr,lat:d.lat,lng:d.lng,phone:d.phone,site:d.site,stories,plans,communityTours,updated:new Date(row.scraped_at),live:!!row.live,
-      kind:d.kind||"apartment",listing:!!d.listing,manager:d.manager||"",desc:d.desc||""};
+      kind:d.kind||"apartment",listing:!!d.listing,manager:d.manager||"",desc:d.desc||"",
+      distMi:d.dist_mi??null,driveMin:d.drive_min??null,driveEst:!!d.drive_est};
   }).filter(p=>p.plans.length&&p.lat);
 }
 let PROPS=[];
@@ -521,7 +558,7 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={area:"",kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null,tourIdx:0};
+const S={area:"",near:null,kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null,tourIdx:0};
 const KIND_LBL={apartment:"Apartment",house:"House",townhome:"Townhome",loft:"Loft"};
 const KIND_PL={apartment:"Apartments",house:"Rental homes",townhome:"Townhomes",loft:"Lofts"};
 const $=id=>document.getElementById(id);
@@ -705,6 +742,8 @@ function sortResults(res){
   if(by==="price-desc") out.sort((a,b)=>(fromOf(b)||0)-(fromOf(a)||0));
   if(by==="units") out.sort((a,b)=>b.plans.reduce((n,x)=>n+x.m.length,0)-a.plans.reduce((n,x)=>n+x.m.length,0));
   if(by==="name") out.sort((a,b)=>a.p.name.localeCompare(b.p.name));
+  const reach=p=>p.driveMin!=null?p.driveMin:p.distMi!=null?p.distMi:999;
+  if(by==="close") out.sort((a,b)=>reach(a.p)-reach(b.p));
   return out;
 }
 // Cover image: the home's first gallery photo, or the cheapest matching floor plan's drawing.
@@ -721,12 +760,19 @@ function kindLine(r){
   const n=r.plans.reduce((a,x)=>a+x.m.length,0);
   return [k!=="apartment"?KIND_PL[k]:"",bl,`${n} open`].filter(Boolean).join(" · ");
 }
+// "12 min drive" / "3.4 mi" from the place in a proximity search.
+function distLbl(p){
+  if(!LANDMARK) return "";
+  if(S.near&&S.near.minutes&&p.driveMin!=null) return `${p.driveEst?"about ":""}${Math.max(1,p.driveMin)} min drive`;
+  return p.distMi!=null?`${p.distMi<10?p.distMi.toFixed(1):Math.round(p.distMi)} mi away`:"";
+}
+let LANDMARK=null;
 function cardHtml(r){
   const c=coverOf(r), from=fromOf(r), why=[...new Set(r.plans.flatMap(x=>x.why||[]))];
   const sel=S.sel&&S.sel.startsWith(r.p.id+":");
   return `<button class="card${sel?" sel":""}" id="prop-${r.p.id}" data-prop="${r.p.id}" ${r.p.listing&&/managebuilding\.com/.test(r.p.site||"")?`data-gal="${esc(r.p.site)}"`:""}>
     <span class="thumb${c.plan?" plan":""}">${c.src?`<img src="${esc(c.src)}" alt="" loading="lazy">`:ICON_HOME}</span>
-    <span class="cbody"><span class="cname">${esc(r.p.name)}</span><span class="cmeta">${esc(kindLine(r))}</span>${why.length?`<span class="why">${esc(why.slice(0,2).join(" · "))}</span>`:""}</span>
+    <span class="cbody"><span class="cname">${esc(r.p.name)}</span><span class="cmeta">${distLbl(r.p)?`<span class="dist">${esc(distLbl(r.p))}</span> · `:""}${esc(kindLine(r))}</span>${why.length?`<span class="why">${esc(why.slice(0,2).join(" · "))}</span>`:""}</span>
     <span class="cprice"><b>${from?fmt(from):"Call"}</b><small>${r.p.listing?"per month":from?"from":""}</small></span>
   </button>`;
 }
@@ -779,7 +825,7 @@ function render(quiet){
   const tagged=allKeys().filter(k=>FEAT[k]).length, totalK=allKeys().length;
   const what=S.q?`“${esc(S.q)}”`:kindWanted().map(k=>(KIND_PL[k]||k).toLowerCase()).join(" and ");
   const reading=PENDING_N?`<div class="reading"><span class="checking"></span>Reading floor plans for ${what}: ${tagged.toLocaleString()} of ${totalK.toLocaleString()} checked. More matches will appear.</div>`:"";
-  $("count").innerHTML=(res.length?`<span><b>${res.length} ${res.length===1?"rental":"rentals"}</b> · ${nu.toLocaleString()} open ${nu===1?"unit":"units"}</span><select class="sort" id="sort" aria-label="Sort"><option value="price">Lowest price</option><option value="price-desc">Highest price</option><option value="units">Most open units</option><option value="name">Name</option></select>`:"")+reading;
+  $("count").innerHTML=(res.length?`<span><b>${res.length} ${res.length===1?"rental":"rentals"}</b> · ${nu.toLocaleString()} open ${nu===1?"unit":"units"}</span><select class="sort" id="sort" aria-label="Sort">${LANDMARK?'<option value="close">Closest</option>':""}<option value="price">Lowest price</option><option value="price-desc">Highest price</option><option value="units">Most open units</option><option value="name">Name</option></select>`:"")+reading;
   if($("sort")) $("sort").value=S.sort||"price";
   const L=$("list");
   const others=othersHtml();
@@ -811,6 +857,7 @@ function fitAll(){
   const ids=new Set(results().map(r=>r.p.id));
   let pts=PROPS.filter(p=>ids.has(p.id)&&p.lat!=null).map(p=>[p.lng,p.lat]);
   if(!pts.length) pts=[...PROPS,...OTHERS].filter(p=>p.lat!=null).map(p=>[p.lng,p.lat]);
+  if(LANDMARK) pts.push([LANDMARK.lng,LANDMARK.lat]);
   if(!pts.length) return;
   const b=pts.reduce((bb,pt)=>bb.extend(pt),new maplibregl.LngLatBounds(pts[0],pts[0]));
   MAP.fitBounds(b,{padding:{top:60,bottom:80,left:60,right:60},maxZoom:14,duration:0});
@@ -819,6 +866,11 @@ function drawMap(res){
   if(!MAP) return;
   MARKERS.forEach(m=>m.remove()); MARKERS=[]; PIN_EL={};
   const shown=new Map(res.map(r=>[r.p.id,r]));
+  if(LANDMARK){
+    const el=document.createElement("div"); el.className="lm"; el.title=LANDMARK.name; el.setAttribute("role","img"); el.setAttribute("aria-label",LANDMARK.name);
+    el.innerHTML='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.9 7.1.6-5.4 4.7 1.7 7-6.3-3.9-6.3 3.9 1.7-7L2 9.5l7.1-.6z"/></svg>';
+    MARKERS.push(new maplibregl.Marker({element:el}).setLngLat([LANDMARK.lng,LANDMARK.lat]).setPopup(new maplibregl.Popup({offset:18,closeButton:false}).setText(LANDMARK.name)).addTo(MAP));
+  }
   for(const o of OTHERS){ if(o.lat==null) continue;
     const el=document.createElement("div"); el.className="pm-dot"; el.title=o.name+" (availability not posted online)";
     MARKERS.push(new maplibregl.Marker({element:el}).setLngLat([o.lng,o.lat]).addTo(MAP));
@@ -920,7 +972,7 @@ function renderDetail(){
   const m=(plans.find(x=>x.pl.key===pl.key)||{m:pl.units.filter(u=>unitMatches(u,p))}).m;
   const mgr=p.manager?p.manager.replace(/\s*\(.*?\)|\s+-\s+.*$/g,""):"";
   const tel=p.phone?`<a class="btn ghost" href="tel:${esc(p.phone.replace(/[^\d+]/g,""))}">Call ${esc(p.phone)}</a>`:"";
-  const head=`<div class="dhead"><div><h2>${esc(p.name)}</h2><p class="addr">${esc(p.addr)}${p.live?' · <span class="fresh live">Live</span>':""}</p></div><button class="dx" id="close" aria-label="Close">${X_ICON}</button></div>`;
+  const head=`<div class="dhead"><div><h2>${esc(p.name)}</h2><p class="addr">${esc(p.addr)}${p.live?' · <span class="fresh live">Live</span>':""}${distLbl(p)?`<br><span class="dist">${esc(distLbl(p))}</span> from ${esc(LANDMARK.name)}`:""}</p></div><button class="dx" id="close" aria-label="Close">${X_ICON}</button></div>`;
   let body;
   if(p.listing){
     const u=pl.units[0];
@@ -1046,11 +1098,14 @@ let PENDING=null, PENDING_AREA="", READY_AREA="";
 // Progress reported by the search while it runs: {p: 0..1, msg}. The search streams one line per step.
 let PROG={p:0,msg:"Starting",at:Date.now()};
 function setProg(p,msg){ if(p<PROG.p&&p<1) return; PROG={p,msg:msg||PROG.msg,at:Date.now()}; updateLoader(); }
+// A search is identified by its label: "Kyle, TX" or "within 20 min of <place>". Proximity searches send {near}.
+const searchKey=()=>S.near?`near|${S.near.q}|${S.near.miles||0}|${S.near.minutes||0}`:S.area;
 function startSearch(area){
   if(PENDING&&PENDING_AREA===area) return PENDING;
   PENDING_AREA=area; PROG={p:0,msg:"Starting",at:Date.now()};
+  const body=S.near?{near:S.near,stream:true}:{area,stream:true};
   PENDING=(async()=>{
-    const r=await fetch(`${SB_URL}/functions/v1/search`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({area,stream:true})});
+    const r=await fetch(`${SB_URL}/functions/v1/search`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify(body)});
     if(!r.ok||!r.body){ const j=await r.json().catch(()=>({})); throw new Error(j.error||`HTTP ${r.status}`); }
     const reader=r.body.getReader(), dec=new TextDecoder(); let buf="", result=null;
     for(;;){
@@ -1104,11 +1159,16 @@ function applyResults(res){
   OTHERS=comms.filter(c=>!(c.models&&c.models.length)&&c.site&&c.lat!=null).sort((a,b)=>a.name.localeCompare(b.name));
   // Listings from property managers can span a metro; keep the ones within about 25 km of the searched area.
   const ctr=res.area&&res.area.lat!=null?[res.area.lat,res.area.lng]:null;
-  const near=c=>{ if(!c.listing||!ctr) return true; const r=Math.PI/180, x=(c.lng-ctr[1])*r*Math.cos((c.lat+ctr[0])/2*r), y=(c.lat-ctr[0])*r; return Math.hypot(x,y)*6371<=25; };
+  LANDMARK=res.area&&res.area.landmark||null;
+  // A proximity search already kept only what's within reach; it also names the place it found.
+  if(LANDMARK&&S.near){ S.area=res.area.query.replace(/^within/,"Within"); S.near.found=LANDMARK.name; }
+  const near=c=>{ if(!c.listing||!ctr||LANDMARK) return true; const r=Math.PI/180, x=(c.lng-ctr[1])*r*Math.cos((c.lat+ctr[0])/2*r), y=(c.lat-ctr[0])*r; return Math.hypot(x,y)*6371<=25; };
   PROPS=buildProps(comms.filter(c=>c.models&&c.models.length&&c.lat!=null&&near(c)).map(c=>({data:c,scraped_at:c.fetched_at,live:c.status==="live"})));
   const nLive=PROPS.filter(p=>p.live).length;
   $("updated").textContent=comms.length?`${nLive} sources checked live at ${fmtTime(new Date())}`:"";
   READY_AREA=PENDING_AREA;
+  if(S.near&&S.sort!=="close") S.sort="close";
+  else if(!S.near&&S.sort==="close") S.sort="price";
 }
 function critSummary(){
   const bits=[S.area];
@@ -1131,10 +1191,10 @@ function fillCriteria(){
 function showStep(n){
   $("app").hidden=true; $("home").hidden=false;
   $("step1").hidden=n!==1; $("step2").hidden=n!==2; $("step3").hidden=n!==3; if(n!==3) hideLoader();
-  if(n===1) $("h-area").focus();
+  if(n===1) ($("nearform").hidden?$("h-area"):$("n-place")).focus();
 }
 function showHome(){ showStep(1); try{history.replaceState(null,"",location.pathname+location.search)}catch(e){} }
-function showCriteria(){ fillCriteria(); if(READY_AREA===S.area) $("cr-status").textContent=""; showStep(2); }
+function showCriteria(){ fillCriteria(); if(READY_AREA===searchKey()) $("cr-status").textContent=""; showStep(2); }
 document.querySelectorAll(".pills").forEach(g=>g.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
   const name=g.dataset.name, v=b.dataset.v; S[name]=name==="baths"?+v:v; setPills(name,S[name]);}));
 $("homeform").addEventListener("submit",e=>{
@@ -1142,13 +1202,36 @@ $("homeform").addEventListener("submit",e=>{
   const area=$("h-area").value.trim();
   if(area.length<2){ $("homeerr").textContent="Type a city, neighborhood, or ZIP code."; $("h-area").focus(); return; }
   $("homeerr").textContent="";
-  Object.assign(S,{area,kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null});
-  OPEN.clear();
-  $("cr-status").innerHTML='<span class="checking"></span>Checking rental listings in the background';
-  startSearch(area).catch(()=>{});
-  fillCriteria(); showStep(2);
+  beginSearch({area,near:null});
 });
-$("backto1").addEventListener("click",()=>{ $("h-area").value=S.area; showStep(1); });
+function beginSearch(o){
+  Object.assign(S,o,{kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null});
+  OPEN.clear(); LANDMARK=null;
+  $("cr-status").innerHTML='<span class="checking"></span>Checking rental listings in the background';
+  startSearch(searchKey()).catch(()=>{});
+  fillCriteria(); showStep(2);
+}
+$("nearform").addEventListener("submit",e=>{
+  e.preventDefault();
+  const q=$("n-place").value.trim(), d=Math.round(+$("n-dist").value), unit=$("n-unit").value;
+  if(q.length<2){ $("homeerr").textContent="Type a place, like your work or school, with its city."; $("n-place").focus(); return; }
+  const max=unit==="miles"?50:60;
+  if(!(d>=1&&d<=max)){ $("homeerr").textContent=`Pick a distance from 1 to ${max} ${unit==="miles"?"miles":"minutes"}.`; $("n-dist").focus(); return; }
+  $("homeerr").textContent="";
+  beginSearch({area:`Within ${d} ${unit==="miles"?"mi":"min"} of ${q}`,near:unit==="miles"?{q,miles:d}:{q,minutes:d}});
+});
+function setMode(m){
+  $("m-city").setAttribute("aria-selected",String(m==="city")); $("m-near").setAttribute("aria-selected",String(m==="near"));
+  $("homeform").hidden=m!=="city"; $("nearform").hidden=m!=="near"; $("homeerr").textContent="";
+  $(m==="city"?"h-area":"n-place").focus();
+}
+$("m-city").addEventListener("click",()=>setMode("city"));
+$("m-near").addEventListener("click",()=>setMode("near"));
+document.querySelector(".modes").addEventListener("keydown",e=>{ if(e.key==="ArrowRight"||e.key==="ArrowLeft"){ e.preventDefault(); setMode($("m-city").getAttribute("aria-selected")==="true"?"near":"city"); $($("m-city").getAttribute("aria-selected")==="true"?"m-city":"m-near").focus(); } });
+$("backto1").addEventListener("click",()=>{
+  if(S.near){ $("n-place").value=S.near.q; $("n-dist").value=S.near.minutes||S.near.miles; $("n-unit").value=S.near.minutes?"minutes":"miles"; showStep(1); setMode("near"); }
+  else { $("h-area").value=S.area; showStep(1); setMode("city"); }
+});
 $("step2").addEventListener("submit",async e=>{
   e.preventDefault();
   S.minRent=+$("c-min").value||0; S.budget=+$("c-max").value||99999; S.movein=$("c-move").value; S.sqft=+$("c-sqft").value||0; S.q=$("c-q").value.trim();
@@ -1156,12 +1239,13 @@ $("step2").addEventListener("submit",async e=>{
   S.sel=null; $("detail").hidden=true; POLL_START=0; clearTimeout(POLL);
   const parsing=parseMust(S.q);
   $("searchsum").textContent=critSummary();
-  const needFetch=READY_AREA!==S.area;
+  const needFetch=READY_AREA!==searchKey();
   showLoader();
   if(needFetch){
-    try{ applyResults(await startSearch(S.area)); }
+    try{ applyResults(await startSearch(searchKey())); }
     catch(err){ PROPS=[];OTHERS=[]; loaderError(err.message||"network error"); return; }
   }
+  $("searchsum").textContent=critSummary();
   setProg(.94,S.q?`Matching “${S.q}” against every floor plan`:"Matching your criteria");
   await parsing; await loadFeatures(allKeys()); applyAIKinds();
   setProg(1,"Done"); await wait(needFetch?450:250);

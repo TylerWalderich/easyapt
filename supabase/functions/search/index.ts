@@ -56,11 +56,13 @@ const areaKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(
 
 // ---------- 1. Discovery (Google Places Text Search) ----------
 const FIELDS = "places.id,places.displayName,places.formattedAddress,places.location,places.websiteUri,places.nationalPhoneNumber,places.types,nextPageToken";
-async function places(q: string, pages: number) {
+type Box = { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } };
+async function places(q: string, pages: number, box?: Box) {
   const out: any[] = [];
   let pageToken = "";
   for (let page = 0; page < pages; page++) {
     const body: Record<string, unknown> = { textQuery: q, pageSize: 20 };
+    if (box) body.locationRestriction = { rectangle: box };
     if (pageToken) body.pageToken = pageToken;
     const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": GKEY, "X-Goog-FieldMask": FIELDS }, body: JSON.stringify(body),
@@ -80,22 +82,38 @@ function kindOf(name: string, site: string | null, types: string[]): string {
   if (/rental homes|homes for rent|rental-homes|for-rent-homes|cottages|casitas|bungalows|single[- ]family|build[- ]to[- ]rent|\bbtr\b|coveyhomes|homes by/i.test(t)) return "house";
   return "apartment";
 }
-async function discover(area: string, key: string) {
+type Circle = { lat: number; lng: number; km: number };
+function boxOf(c: Circle, part?: [number, number]): Box {
+  const dLat = c.km / 111, dLng = c.km / (111 * Math.cos((c.lat * Math.PI) / 180));
+  let low = { latitude: c.lat - dLat, longitude: c.lng - dLng }, high = { latitude: c.lat + dLat, longitude: c.lng + dLng };
+  // part [i, j] picks one quarter of the box (i: south/north, j: west/east).
+  if (part) {
+    low = { latitude: part[0] ? c.lat : c.lat - dLat, longitude: part[1] ? c.lng : c.lng - dLng };
+    high = { latitude: part[0] ? c.lat + dLat : c.lat, longitude: part[1] ? c.lng + dLng : c.lng };
+  }
+  return { low, high };
+}
+async function discover(area: string, key: string, circle?: Circle) {
   if (!GKEY) throw new Error("Google Places key is not set (GOOGLE_PLACES_KEY)");
   // Google returns at most 60 places per query, so a big city needs several angles to reach most complexes.
-  const extra = (q: string, n: number) => places(q, n).catch(() => [] as any[]);
+  // A proximity search asks inside a box around the place instead of "in <city>", and splits a wide box into quarters.
+  const box = circle ? boxOf(circle) : undefined;
+  const Q = (what: string) => circle ? what : `${what} in ${area}`;
+  const extra = (q: string, n: number, b = box) => places(q, n, b).catch(() => [] as any[]);
+  const quarters = circle && circle.km > 12 ? ([[0, 0], [0, 1], [1, 0], [1, 1]] as [number, number][]) : [];
   const [apts, more, towns, homes, mgrs] = await Promise.all([
-    places(`apartment complexes in ${area}`, 3),
+    places(Q("apartment complexes"), 3, box),
     Promise.all([
-      extra(`apartments for rent in ${area}`, 3),
-      extra(`luxury apartments in ${area}`, 3),
-      extra(`loft apartments in ${area}`, 2),
-      extra(`downtown apartments ${area}`, 1),
-      extra(`new apartment communities in ${area}`, 1),
+      extra(Q("apartments for rent"), 3),
+      extra(Q("luxury apartments"), 3),
+      extra(Q("loft apartments"), 2),
+      extra(circle ? "downtown apartments" : `downtown apartments ${area}`, 1),
+      extra(Q("new apartment communities"), 1),
+      ...quarters.map((q) => extra("apartment complexes", 2, boxOf(circle!, q))),
     ]).then((x) => x.flat()),
-    places(`townhomes for rent in ${area}`, 2).catch(() => []),
-    places(`rental homes community in ${area}`, 1).catch(() => []),
-    places(`property management company in ${area}`, 1).catch(() => []),
+    places(Q("townhomes for rent"), 2, box).catch(() => []),
+    places(Q("rental homes community"), 1, box).catch(() => []),
+    places(Q("property management company"), 1, box).catch(() => []),
   ]);
   const seen = new Map<string, { p: any; kind: string }>();
   for (const p of [...apts, ...more, ...towns, ...homes]) {
@@ -128,8 +146,8 @@ async function discover(area: string, key: string) {
   }));
   if (rows.length) await sb.from("communities").upsert(rows, { onConflict: "place_id" });
   const local = rows.filter((r) => r.kind !== "manager" && r.lat != null);
-  const lat = local.length ? local.reduce((a, r) => a + r.lat!, 0) / local.length : null;
-  const lng = local.length ? local.reduce((a, r) => a + r.lng!, 0) / local.length : null;
+  const lat = circle ? circle.lat : local.length ? local.reduce((a, r) => a + r.lat!, 0) / local.length : null;
+  const lng = circle ? circle.lng : local.length ? local.reduce((a, r) => a + r.lng!, 0) / local.length : null;
   await sb.from("areas").upsert({ area_key: key, query: area, lat, lng, discovered_at: new Date().toISOString(), community_count: rows.length, discovery_v: DISCOVERY_V });
 }
 
@@ -414,7 +432,7 @@ const km = (a: [number, number], b: [number, number]) => {
   const r = Math.PI / 180, x = (b[1] - a[1]) * r * Math.cos(((a[0] + b[0]) / 2) * r), y = (b[0] - a[0]) * r;
   return Math.sqrt(x * x + y * y) * 6371;
 };
-async function readManager(c: any, center: [number, number] | null) {
+async function readManager(c: any, center: [number, number] | null, maxKm = 40) {
   const src = `place:${c.place_id}`;
   let listings: Listing[] | null = null, fetched = new Date().toISOString();
   if (c.last_ok && Date.now() - new Date(c.last_ok).getTime() < 10 * 60e3) {
@@ -434,7 +452,7 @@ async function readManager(c: any, center: [number, number] | null) {
   const geo = await geocode(listings.map((l) => l.addr));
   return listings.flatMap((l) => {
     const g = geo.get(l.addr);
-    if (!g || (center && km(center, g) > 40)) return [];
+    if (!g || (center && km(center, g) > maxKm)) return [];
     const unit: Unit = [l.kind === "house" ? "Whole home" : l.title.match(/#\s*([\w-]+)/)?.[1] ?? "Home", l.rent, l.avail, null, null];
     const model: Model = [l.kind === "house" ? "House" : l.kind === "townhome" ? "Townhome" : "Apartment", l.beds, l.baths, l.sqft, "", [unit], l.img];
     return [{
@@ -492,17 +510,88 @@ async function attachFeatureKeys(results: any[]) {
 
 type Progress = (p: number, msg: string, extra?: Record<string, unknown>) => void;
 
-async function runSearch(area: string, progress: Progress) {
-  const key = areaKey(area);
-  progress(0.03, `Looking up ${area}`);
+// ---------- Proximity: find the place, then measure distance or drive time to each rental ----------
+async function findLandmark(q: string) {
+  const k = q.toLowerCase().replace(/\s+/g, " ").trim();
+  const { data } = await sb.from("landmarks").select("place, at").eq("q", k).maybeSingle();
+  if (data && Date.now() - new Date(data.at).getTime() < 90 * DAY) return data.place;
+  const [p] = await places(q, 1);
+  if (!p?.location) return null;
+  const place = { id: p.id, name: String(p.displayName?.text ?? q), addr: String(p.formattedAddress ?? "").replace(/,\s*USA$/, ""), lat: p.location.latitude, lng: p.location.longitude };
+  await sb.from("landmarks").upsert({ q: k, place, at: new Date().toISOString() });
+  return place;
+}
+// Driving time from the place to each rental (Google Routes, no traffic), cached for 30 days.
+// If the Routes service can't be reached, fall back to an estimate from straight-line distance.
+async function driveTimes(origin: Near["place"], dests: { id: string; lat: number; lng: number }[]) {
+  const out = new Map<string, { min: number; est: boolean }>();
+  const { data } = await sb.from("drive_times").select("place_id, seconds, at").eq("origin", origin.id).in("place_id", dests.map((d) => d.id));
+  for (const r of data ?? []) if (r.seconds != null && Date.now() - new Date(r.at).getTime() < 30 * DAY) out.set(r.place_id, { min: r.seconds / 60, est: false });
+  const todo = dests.filter((d) => !out.has(d.id));
+  const chunks: typeof todo[] = [];
+  for (let i = 0; i < todo.length; i += 50) chunks.push(todo.slice(i, i + 50));
+  await pool(chunks, 4, async (chunk) => {
+    try {
+      const r = await withTimeout(fetch("https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Goog-Api-Key": GKEY, "X-Goog-FieldMask": "originIndex,destinationIndex,duration,distanceMeters,condition" },
+        body: JSON.stringify({
+          origins: [{ waypoint: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } } }],
+          destinations: chunk.map((d) => ({ waypoint: { location: { latLng: { latitude: d.lat, longitude: d.lng } } } })),
+          travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE",
+        }),
+      }), 15000);
+      const j = await r.json();
+      if (!r.ok || !Array.isArray(j)) throw new Error(j?.error?.message ?? `Routes HTTP ${r.status}`);
+      const rows: any[] = [];
+      for (const e of j) {
+        const d = chunk[e.destinationIndex];
+        if (!d || e.condition !== "ROUTE_EXISTS" || !e.duration) continue;
+        const sec = parseInt(String(e.duration), 10);
+        out.set(d.id, { min: sec / 60, est: false });
+        rows.push({ origin: origin.id, place_id: d.id, seconds: sec, meters: e.distanceMeters ?? null, at: new Date().toISOString() });
+      }
+      if (rows.length) await sb.from("drive_times").upsert(rows);
+    } catch (e) {
+      console.log("routes", String(e).slice(0, 200));
+    }
+  });
+  // Estimate: road distance is about 1.3 times straight-line, at about 37 mph average (suburban roads and highways).
+  for (const d of todo) if (!out.has(d.id)) out.set(d.id, { min: (km([origin.lat, origin.lng], [d.lat, d.lng]) * 1.3 / 60) * 60, est: true });
+  return out;
+}
+async function withinReach(all: any[], near: Near) {
+  const o: [number, number] = [near.place.lat, near.place.lng];
+  for (const c of all) if (c.lat != null) c.dist_mi = Math.round((km(o, [c.lat, c.lng]) / 1.609) * 10) / 10;
+  let keep = all.filter((c) => c.lat != null && c.dist_mi * 1.609 <= near.km);
+  if (near.minutes) {
+    const t = await driveTimes(near.place, keep.map((c) => ({ id: c.place_id, lat: c.lat, lng: c.lng })));
+    keep = keep.filter((c) => {
+      const x = t.get(c.place_id);
+      if (!x) return false;
+      c.drive_min = Math.round(x.min); c.drive_est = x.est;
+      return x.min <= near.minutes!;
+    });
+  } else keep = keep.filter((c) => c.dist_mi <= near.miles!);
+  return keep;
+}
+
+type Near = { place: { id: string; name: string; addr: string; lat: number; lng: number }; miles?: number; minutes?: number; km: number };
+async function runSearch(area: string, progress: Progress, near?: Near) {
+  // A proximity search keeps its own list of places, reused by later searches around the same spot.
+  const key = near ? `near ${near.place.id} ${Math.ceil(near.km / 5) * 5}` : areaKey(area);
+  progress(0.03, near ? `Looking around ${near.place.name}` : `Looking up ${area}`);
   const { data: a } = await sb.from("areas").select("*").eq("area_key", key).maybeSingle();
   let discoveredNow = false;
   if (!a || (a.discovery_v ?? 1) < DISCOVERY_V || Date.now() - new Date(a.discovered_at).getTime() > 30 * DAY) {
-    progress(0.06, `Finding apartments, homes and townhomes in ${area}`);
-    await discover(area, key); discoveredNow = true;
+    progress(0.06, near ? `Finding apartments, homes and townhomes near ${near.place.name}` : `Finding apartments, homes and townhomes in ${area}`);
+    await discover(area, key, near ? { lat: near.place.lat, lng: near.place.lng, km: Math.ceil(near.km / 5) * 5 } : undefined); discoveredNow = true;
   }
   let { data: comms } = await sb.from("communities").select("*").contains("area_keys", [key]);
   comms = comms ?? [];
+  // Only read what's inside the circle (property managers are kept: their homes are filtered one by one).
+  const inCircle = (c: any) => !near || c.kind === "manager" || (c.lat != null && km([near.place.lat, near.place.lng], [c.lat, c.lng]) <= near.km);
+  comms = comms.filter(inCircle);
   progress(0.2, `Found ${comms.length} rental properties and managers`, { found: comms.length });
   const stale = comms.filter((c) => !c.detected_at || Date.now() - new Date(c.detected_at).getTime() > 30 * DAY);
   if (stale.length) {
@@ -521,10 +610,10 @@ async function runSearch(area: string, progress: Progress) {
       done++; progress(0.21 + 0.24 * (done / now.length), `Checking property websites (${done} of ${now.length})`);
       return r;
     }), 60000).catch(() => {});
-    comms = (await sb.from("communities").select("*").contains("area_keys", [key])).data ?? [];
+    comms = ((await sb.from("communities").select("*").contains("area_keys", [key])).data ?? []).filter(inCircle);
   }
   const { data: aa } = await sb.from("areas").select("lat,lng,query").eq("area_key", key).maybeSingle();
-  const center: [number, number] | null = aa?.lat != null ? [aa.lat, aa.lng] : null;
+  const center: [number, number] | null = near ? [near.place.lat, near.place.lng] : aa?.lat != null ? [aa.lat, aa.lng] : null;
 
   const { data: snaps } = await sb.from("listings").select("source_url, data, scraped_at").like("source_url", "https://www.apartments.com/%");
   const snapBy = new Map((snaps ?? []).map((s) => [domain(s.data?.site), s]));
@@ -554,12 +643,16 @@ async function runSearch(area: string, progress: Progress) {
       tick();
       return out;
     }),
-    pool(readable, 5, async (c) => { const r = await readManager(c, center).catch(() => []); units += r.length; tick(); return r; }),
+    pool(readable, 5, async (c) => { const r = await readManager(c, center, near ? near.km : 40).catch(() => []); units += r.length; tick(); return r; }),
   ]);
   // A home listed by two managers shows once.
   const seenAddr = new Set<string>();
   const homeList = homes.flat().filter((h: any) => { const k = h.addr.toLowerCase().replace(/[^a-z0-9]/g, ""); if (seenAddr.has(k)) return false; seenAddr.add(k); return true; });
-  const all = [...results, ...homeList];
+  let all = [...results, ...homeList];
+  if (near) {
+    progress(0.9, near.minutes ? `Timing the drive to ${near.place.name}` : `Measuring distance to ${near.place.name}`);
+    all = await withinReach(all, near);
+  }
 
   progress(0.92, `Saving ${units.toLocaleString()} open units`, { units });
   const nPlans = await attachFeatureKeys(all).catch(() => 0);
@@ -568,19 +661,34 @@ async function runSearch(area: string, progress: Progress) {
     // @ts-ignore EdgeRuntime is provided by Supabase
     EdgeRuntime.waitUntil(fetch(SMART_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, apikey: ANON }, body: JSON.stringify({ action: "tag" }) }).catch(() => {}));
   }
-  return { area: aa ?? { query: area }, discoveredNow, managers: managers.map((m) => ({ name: m.name, site: m.website, platform: m.platform })), communities: all };
+  const areaOut = near
+    ? { query: area, lat: near.place.lat, lng: near.place.lng, landmark: near.place, miles: near.miles ?? null, minutes: near.minutes ?? null }
+    : aa ?? { query: area };
+  return { area: areaOut, discoveredNow, managers: managers.map((m) => ({ name: m.name, site: m.website, platform: m.platform })), communities: all };
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  const { area: rawArea, stream, detect: ids } = await req.json().catch(() => ({}));
+  const { area: rawArea, stream, detect: ids, near: rawNear } = await req.json().catch(() => ({}));
   // Background batch: check these property websites (sent by a search for a big area).
   if (Array.isArray(ids) && ids.length) {
     const { data } = await sb.from("communities").select("place_id, website, kind").in("place_id", ids.slice(0, DETECT_BATCH));
     await withTimeout(pool(data ?? [], 8, (c) => detect(c)), 120000).catch(() => {});
     return json({ checked: (data ?? []).length });
   }
-  const area = String(rawArea ?? "").trim().slice(0, 80);
+  let area = String(rawArea ?? "").trim().slice(0, 80);
+  // Proximity search: {near: {q: "Gallagher Orthodontics Lakeway TX", miles: 10} or {..., minutes: 20}}
+  let near: Near | undefined;
+  if (rawNear && typeof rawNear === "object") {
+    const q = String(rawNear.q ?? "").trim().slice(0, 120);
+    const miles = Math.min(Math.max(+rawNear.miles || 0, 0), 50), minutes = Math.min(Math.max(+rawNear.minutes || 0, 0), 60);
+    if (q.length < 2 || (!miles && !minutes)) return json({ error: "Enter a place and a distance." }, 400);
+    const place = await findLandmark(q).catch(() => null);
+    if (!place) return json({ error: `We couldn't find "${q}" on the map. Try adding the city.` }, 404);
+    // Search radius: the distance itself, or the farthest a drive of that length could reach (about 60 mph).
+    near = { place, miles: miles || undefined, minutes: minutes || undefined, km: miles ? miles * 1.609 : Math.max(3, minutes * 1.6) };
+    area = minutes ? `within ${minutes} min of ${place.name}` : `within ${miles} mi of ${place.name}`;
+  }
   if (area.length < 2) return json({ error: "Enter a city, neighborhood, or ZIP code." }, 400);
   // stream: true sends one JSON line per step ({p, msg}), then {result} — this drives the site's progress bar.
   if (stream) {
@@ -590,7 +698,7 @@ Deno.serve(async (req) => {
         const send = (o: unknown) => { try { ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n")); } catch { /* client left */ } };
         let last = 0;
         try {
-          const result = await runSearch(area, (p, msg, extra) => { if (p >= last) { last = p; send({ p: Math.round(p * 1000) / 1000, msg, ...(extra ?? {}) }); } });
+          const result = await runSearch(area, (p, msg, extra) => { if (p >= last) { last = p; send({ p: Math.round(p * 1000) / 1000, msg, ...(extra ?? {}) }); } }, near);
           send({ p: 1, msg: "Done", result });
         } catch (e) {
           send({ error: e instanceof Error ? e.message : String(e) });
@@ -601,7 +709,7 @@ Deno.serve(async (req) => {
     return new Response(body, { headers: { ...CORS, "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
   }
   try {
-    return json(await runSearch(area, () => {}));
+    return json(await runSearch(area, () => {}, near));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
