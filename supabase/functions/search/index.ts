@@ -521,6 +521,20 @@ async function findLandmark(q: string) {
   await sb.from("landmarks").upsert({ q: k, place, at: new Date().toISOString() });
   return place;
 }
+// A place picked from the suggestion list: look it up by Google place id (ends the typing session).
+async function landmarkById(id: string, session?: string) {
+  const k = `id:${id}`;
+  const { data } = await sb.from("landmarks").select("place, at").eq("q", k).maybeSingle();
+  if (data && Date.now() - new Date(data.at).getTime() < 90 * DAY) return data.place;
+  const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}${session ? `?sessionToken=${encodeURIComponent(session)}` : ""}`, {
+    headers: { "X-Goog-Api-Key": GKEY, "X-Goog-FieldMask": "id,displayName,formattedAddress,location" },
+  });
+  const p = await r.json();
+  if (!r.ok || !p?.location) return null;
+  const place = { id: p.id, name: String(p.displayName?.text ?? ""), addr: String(p.formattedAddress ?? "").replace(/,\s*USA$/, ""), lat: p.location.latitude, lng: p.location.longitude };
+  await sb.from("landmarks").upsert({ q: k, place, at: new Date().toISOString() });
+  return place;
+}
 // Driving time from the place to each rental (Google Routes, no traffic), cached for 30 days.
 // If the Routes service can't be reached, fall back to an estimate from straight-line distance.
 async function driveTimes(origin: Near["place"], dests: { id: string; lat: number; lng: number }[]) {
@@ -683,7 +697,9 @@ Deno.serve(async (req) => {
     const q = String(rawNear.q ?? "").trim().slice(0, 120);
     const miles = Math.min(Math.max(+rawNear.miles || 0, 0), 50), minutes = Math.min(Math.max(+rawNear.minutes || 0, 0), 60);
     if (q.length < 2 || (!miles && !minutes)) return json({ error: "Enter a place and a distance." }, 400);
-    const place = await findLandmark(q).catch(() => null);
+    const pid = /^[A-Za-z0-9_-]{10,300}$/.test(String(rawNear.placeId ?? "")) ? String(rawNear.placeId) : "";
+    const session = /^[A-Za-z0-9-]{8,64}$/.test(String(rawNear.session ?? "")) ? String(rawNear.session) : undefined;
+    const place = await (pid ? landmarkById(pid, session) : findLandmark(q)).catch(() => null);
     if (!place) return json({ error: `We couldn't find "${q}" on the map. Try adding the city.` }, 404);
     // Search radius: the distance itself, or the farthest a drive of that length could reach (about 60 mph).
     near = { place, miles: miles || undefined, minutes: minutes || undefined, km: miles ? miles * 1.609 : Math.max(3, minutes * 1.6) };

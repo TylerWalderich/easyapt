@@ -245,7 +245,15 @@ tr.match td.u{box-shadow:inset 3px 0 0 var(--glow)}
 .modes button{border:0;background:none;color:#fff;font:600 14.5px var(--f-body);padding:9px 16px;border-radius:999px;cursor:pointer;opacity:.85}
 .modes button:hover{opacity:1}
 .modes button[aria-selected="true"]{background:#fff;color:#17181b;opacity:1}
-.search.near{flex-wrap:wrap;row-gap:4px}
+.search.near{flex-wrap:wrap;row-gap:4px;position:relative}
+.sugg{position:absolute;left:0;right:0;top:calc(100% + 8px);z-index:20;margin:0;padding:6px;list-style:none;background:#fff;color:#1c2421;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.35);text-align:left}
+.sugg li[role="option"]{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer}
+.sugg li[role="option"] svg{width:18px;height:18px;flex:none;color:#7a827e}
+.sugg li[aria-selected="true"],.sugg li[role="option"]:hover{background:#f1f0ec}
+.sugg b{display:block;font-weight:600;font-size:15.5px;line-height:1.25}
+.sugg small{display:block;color:#6b746f;font-size:13px;line-height:1.3;margin-top:1px}
+.sugg .sg-foot{display:flex;justify-content:flex-end;padding:6px 10px 2px;font-size:11.5px;color:#7a827e;border-top:1px solid #eeede9;margin-top:4px}
+.sugg .sg-none{padding:10px 12px;color:#6b746f;font-size:14px}
 .search.near .nplace{flex:1 1 260px;display:flex;align-items:center;gap:10px;min-width:0}
 .ndist{display:flex;align-items:center;gap:6px;flex:none;border-left:1px solid #e3e2dd;padding-left:12px}
 .ndist span{color:#5b6661;font-size:15px}
@@ -414,8 +422,9 @@ html{overflow-x:clip}
             <div class="nplace">
               <svg class="pin-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
               <label class="sr" for="n-place">Place</label>
-              <input id="n-place" placeholder="Work, school, or any address" enterkeyhint="next">
+              <input id="n-place" placeholder="Work, school, or any address" enterkeyhint="next" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="n-sugg" autocomplete="off" spellcheck="false">
             </div>
+            <ul class="sugg" id="n-sugg" role="listbox" aria-label="Suggested places" hidden></ul>
             <div class="ndist">
               <span>within</span>
               <label class="sr" for="n-dist">Distance</label>
@@ -1099,7 +1108,7 @@ let PENDING=null, PENDING_AREA="", READY_AREA="";
 let PROG={p:0,msg:"Starting",at:Date.now()};
 function setProg(p,msg){ if(p<PROG.p&&p<1) return; PROG={p,msg:msg||PROG.msg,at:Date.now()}; updateLoader(); }
 // A search is identified by its label: "Kyle, TX" or "within 20 min of <place>". Proximity searches send {near}.
-const searchKey=()=>S.near?`near|${S.near.q}|${S.near.miles||0}|${S.near.minutes||0}`:S.area;
+const searchKey=()=>S.near?`near|${S.near.placeId||S.near.q}|${S.near.miles||0}|${S.near.minutes||0}`:S.area;
 function startSearch(area){
   if(PENDING&&PENDING_AREA===area) return PENDING;
   PENDING_AREA=area; PROG={p:0,msg:"Starting",at:Date.now()};
@@ -1160,6 +1169,7 @@ function applyResults(res){
   // Listings from property managers can span a metro; keep the ones within about 25 km of the searched area.
   const ctr=res.area&&res.area.lat!=null?[res.area.lat,res.area.lng]:null;
   LANDMARK=res.area&&res.area.landmark||null;
+  if(ctr) try{localStorage.setItem("easyapt-bias",JSON.stringify({lat:ctr[0],lng:ctr[1]}))}catch(e){}
   // A proximity search already kept only what's within reach; it also names the place it found.
   if(LANDMARK&&S.near){ S.area=res.area.query.replace(/^within/,"Within"); S.near.found=LANDMARK.name; }
   const near=c=>{ if(!c.listing||!ctr||LANDMARK) return true; const r=Math.PI/180, x=(c.lng-ctr[1])*r*Math.cos((c.lat+ctr[0])/2*r), y=(c.lat-ctr[0])*r; return Math.hypot(x,y)*6371<=25; };
@@ -1218,8 +1228,52 @@ $("nearform").addEventListener("submit",e=>{
   const max=unit==="miles"?50:60;
   if(!(d>=1&&d<=max)){ $("homeerr").textContent=`Pick a distance from 1 to ${max} ${unit==="miles"?"miles":"minutes"}.`; $("n-dist").focus(); return; }
   $("homeerr").textContent="";
-  beginSearch({area:`Within ${d} ${unit==="miles"?"mi":"min"} of ${q}`,near:unit==="miles"?{q,miles:d}:{q,minutes:d}});
+  const pick=NEAR_PICK&&NEAR_PICK.label===q?{placeId:NEAR_PICK.id,session:PLACE_SESSION}:{};
+  PLACE_SESSION=null; hideSugg();
+  beginSearch({area:`Within ${d} ${unit==="miles"?"mi":"min"} of ${q}`,near:unit==="miles"?{q,miles:d,...pick}:{q,minutes:d,...pick}});
 });
+/* Place suggestions (Google Places Autocomplete, through our own server so the key stays private) */
+let SUGG=[], SUGG_I=-1, SUGG_T=null, SUGG_SEQ=0, NEAR_PICK=null, PLACE_SESSION=null;
+const PIN_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/></svg>';
+const newSession=()=>{ try{ return crypto.randomUUID() }catch(e){ return Date.now().toString(36)+Math.random().toString(36).slice(2,12) } };
+function biasPt(){ try{ const b=JSON.parse(localStorage.getItem("easyapt-bias")||"null"); if(b&&isFinite(b.lat)) return b; }catch(e){} return {lat:30.27,lng:-97.74}; }
+function hideSugg(){ const u=$("n-sugg"); u.hidden=true; u.innerHTML=""; SUGG_I=-1; $("n-place").setAttribute("aria-expanded","false"); $("n-place").removeAttribute("aria-activedescendant"); }
+function drawSugg(empty){
+  const u=$("n-sugg");
+  if(!SUGG.length&&!empty){ hideSugg(); return; }
+  u.innerHTML=(SUGG.length?SUGG.map((x,i)=>`<li role="option" id="sg-${i}" data-i="${i}" aria-selected="${i===SUGG_I}">${PIN_SVG}<span><b>${esc(x.main)}</b>${x.sub?`<small>${esc(x.sub)}</small>`:""}</span></li>`).join(""):`<li class="sg-none" role="presentation">No matching places. Try adding the city.</li>`)
+    +`<li class="sg-foot" role="presentation">Powered by Google</li>`;
+  u.hidden=false; $("n-place").setAttribute("aria-expanded","true");
+  if(SUGG_I>=0) $("n-place").setAttribute("aria-activedescendant","sg-"+SUGG_I); else $("n-place").removeAttribute("aria-activedescendant");
+}
+async function fetchSugg(q){
+  const seq=++SUGG_SEQ; PLACE_SESSION=PLACE_SESSION||newSession();
+  try{
+    const r=await fetch(`${SB_URL}/functions/v1/places`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${SB_ANON}`,apikey:SB_ANON},body:JSON.stringify({q,session:PLACE_SESSION,...biasPt()})});
+    const j=await r.json(); if(seq!==SUGG_SEQ||$("n-place").value.trim()!==q) return;
+    SUGG=Array.isArray(j)?j:[]; SUGG_I=-1; drawSugg(true);
+  }catch(e){ if(seq===SUGG_SEQ) hideSugg(); }
+}
+function pickSugg(i){
+  const x=SUGG[i]; if(!x) return;
+  NEAR_PICK={id:x.id,label:x.main}; $("n-place").value=x.main; hideSugg();
+  $("n-dist").focus(); $("n-dist").select();
+}
+$("n-place").addEventListener("input",()=>{
+  NEAR_PICK=null; clearTimeout(SUGG_T);
+  const q=$("n-place").value.trim();
+  if(q.length<2){ SUGG=[]; hideSugg(); return; }
+  SUGG_T=setTimeout(()=>fetchSugg(q),180);
+});
+$("n-place").addEventListener("keydown",e=>{
+  const open=!$("n-sugg").hidden&&SUGG.length;
+  if(e.key==="ArrowDown"&&open){ e.preventDefault(); SUGG_I=(SUGG_I+1)%SUGG.length; drawSugg(true); }
+  else if(e.key==="ArrowUp"&&open){ e.preventDefault(); SUGG_I=SUGG_I<=0?SUGG.length-1:SUGG_I-1; drawSugg(true); }
+  else if(e.key==="Enter"&&open&&SUGG_I>=0){ e.preventDefault(); pickSugg(SUGG_I); }
+  else if(e.key==="Escape"&&!$("n-sugg").hidden){ e.preventDefault(); hideSugg(); }
+});
+$("n-place").addEventListener("blur",()=>setTimeout(hideSugg,150));
+$("n-sugg").addEventListener("pointerdown",e=>{ const li=e.target.closest("li[data-i]"); if(!li) return; e.preventDefault(); pickSugg(+li.dataset.i); });
 function setMode(m){
   $("m-city").setAttribute("aria-selected",String(m==="city")); $("m-near").setAttribute("aria-selected",String(m==="near"));
   $("homeform").hidden=m!=="city"; $("nearform").hidden=m!=="near"; $("homeerr").textContent="";
