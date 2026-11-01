@@ -51,13 +51,14 @@ Work in this order and reply with one JSON object and nothing else:
 {"rooms":[{"name":"living room","dims":"12'8\" x 14'8\"" or null}],
  "outdoor":{"type":one of ${JSON.stringify(OUTDOOR)},"dims":"dimension label printed INSIDE the outdoor space or naming it, else null","sqft":number or null,"depth_vs_room":"how deep the outdoor space looks compared with the room it opens from, e.g. about one third","size":one of ${JSON.stringify(SIZES)},"count":number},
  "tags":[zero or more of ${JSON.stringify(TAGS)}],
- "property_type":"house" | "townhome" | "apartment" | "unknown",
+ "property_type":"house" | "townhome" | "loft" | "apartment" | "unknown",
  "summary":"one plain sentence, max 140 characters, naming the standout features"}
 Property type, judged from the photo, the address and the description together:
 - house: a detached single-family home, no shared walls.
 - townhome: a home that shares a wall with a neighbor but has its own front door at ground level: townhouses, rowhouses, duplex/triplex/fourplex units (addresses ending in A, B, C or "Unit A"), patio homes in attached rows. A two-story attached unit with its own garage is a townhome.
 - apartment: a unit in a multi-unit building reached by shared hallways or stairs, or a numbered unit in a larger complex; garage apartments and studios over garages count as apartments.
-- For a floor plan drawing from an apartment community: "townhome" when the unit itself has living space on two or more floors joined by a staircase INSIDE the unit (separate first-floor and second-floor panels, or an attached garage below); otherwise "apartment". Stairs drawn outside the unit's walls (a building stairwell or exterior steps) do not make it a townhome.
+- loft: an apartment (entered from a shared hallway, breezeway or stairwell, no garage, no ground-level front door of its own) that is two-story in some way: a loft or mezzanine bedroom or den upstairs open to the room below, a second level inside the unit, or double-height ceilings (roughly 16-20 ft or more, "two-story living room", "open to below"). Plan names with "L" or "loft" (AL3, B2L) often signal this.
+- For a floor plan drawing from an apartment community: "townhome" only when the unit is a full home on two or more floors with its own ground-level front door or an attached garage (often separate first-floor and second-floor panels showing an entry and garage); "loft" when it has an upper level or open loft but is otherwise an apartment; otherwise "apartment". Stairs drawn outside the unit's walls (a building stairwell or exterior steps) do not count.
 - unknown: only when it is truly impossible to tell.
 Rules for dimensions: a dimension label belongs to the indoor room it is printed in or beside. On most plans the labels next to a balcony belong to the living room or bedroom it opens from, not to the balcony. Only use a label for the outdoor space if it is printed inside the outdoor area or names it ("Balcony 6' x 10'", "Patio"). Otherwise leave outdoor.dims and outdoor.sqft null and judge size from proportions.
 Outdoor size: small = a typical balcony or patio, roughly 5-7 ft deep or under 60 sq ft; medium = 60-99 sq ft, or noticeably deeper or wider than usual; large = 100 sq ft or more by a label that clearly belongs to it, or visibly at least half the size of the room it opens from, or wrapping a corner. When unsure between two sizes, choose the smaller.
@@ -93,7 +94,7 @@ function clean(f: any) {
     },
     tags: [...new Set((Array.isArray(f?.tags) ? f.tags : []).filter((t: string) => TAGS.includes(t)))],
     summary: String(f?.summary ?? "").slice(0, 160),
-    kind: ["house", "townhome", "apartment"].includes(f?.property_type) ? f.property_type : "unknown",
+    kind: ["house", "townhome", "loft", "apartment"].includes(f?.property_type) ? f.property_type : "unknown",
   };
 }
 async function tagOne(row: any) {
@@ -134,14 +135,14 @@ async function tagBatch(budgetMs: number) {
 // ---------- Keyword parsing ----------
 const PARSE_SYSTEM = `You turn a renter's search keywords into filters for a rental search engine.
 Floor plans are tagged with outdoor space {type in ${JSON.stringify(OUTDOOR.slice(1))}, size small|medium|large} and tags from ${JSON.stringify(TAGS)}.
-Rental kinds are apartment, townhome, house.
+Rental kinds are apartment, townhome, house, loft (a two-level apartment: loft bedroom upstairs, mezzanine, or double-height ceilings).
 Reply with one JSON object and nothing else:
 {"groups":[{"label":"short human label, e.g. Large terrace","outdoor_types":[...] or [],"min_size":"small"|"medium"|"large"|null,"any_tags":[...] }],
  "kinds":[...] or [],
  "text":["leftover words that are names, e.g. a community or floor plan name"]}
 Each group is one thing the renter asked for; a plan must satisfy every group. Inside a group, a plan matches if it has any of any_tags OR (outdoor type in outdoor_types with at least min_size).
 Be generous with synonyms: "terrace" -> outdoor_types [terrace, balcony, patio, rooftop], min_size "medium"; "big/huge/large terrace" -> same types, min_size "large"; "balcony" -> [balcony, terrace], min_size "small"; "patio" -> [patio, terrace, courtyard, yard], min_size "small"; "yard" or "dog run" -> any_tags [fenced_yard, yard], outdoor_types [yard]; "office" or "work from home" -> any_tags [den_office, flex_room, loft]; "garage" -> [garage, attached_garage]; "big closet" -> [walk_in_closet, multiple_closets]; "island" -> [kitchen_island, breakfast_bar]; "washer dryer" or "laundry" -> [washer_dryer, laundry_room].
-Words like "house", "townhome", "apartment" go in kinds, not groups. Ignore filler words. If nothing maps, return empty groups and put meaningful words in text.`;
+Words like "house", "townhome", "apartment", "loft", "two story apartment", "high ceilings" go in kinds, not groups ("loft"/"two story apartment"/"20 ft ceilings" -> kinds ["loft"]). Ignore filler words. If nothing maps, return empty groups and put meaningful words in text.`;
 
 async function parse(q: string) {
   const key = q.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 100);
@@ -156,7 +157,7 @@ async function parse(q: string) {
       min_size: ["small", "medium", "large"].includes(g.min_size) ? g.min_size : null,
       any_tags: (g.any_tags ?? []).filter((t: string) => TAGS.includes(t)),
     })).filter((g: any) => g.outdoor_types.length || g.any_tags.length),
-    kinds: (p.kinds ?? []).filter((k: string) => ["apartment", "townhome", "house"].includes(k)),
+    kinds: (p.kinds ?? []).filter((k: string) => ["apartment", "townhome", "house", "loft"].includes(k)),
     text: (p.text ?? []).map((t: unknown) => String(t).toLowerCase().slice(0, 40)).slice(0, 6),
   };
   await sb.from("query_parses").upsert({ q: key, parsed });

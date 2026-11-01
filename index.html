@@ -356,7 +356,8 @@ html{overflow-x:clip}
           <p class="cr-hint">Everything here is optional. Leave anything blank to see it all.</p>
           <div class="cr-grid">
             <div class="cr-f wide"><span class="cr-l" id="l-kind">Rental type</span>
-              <div class="pills" data-name="kind" role="group" aria-labelledby="l-kind"><button type="button" data-v="any">Any</button><button type="button" data-v="apartment">Apartment</button><button type="button" data-v="house">House</button><button type="button" data-v="townhome">Townhome</button></div></div>
+              <div class="pills" data-name="kind" role="group" aria-labelledby="l-kind"><button type="button" data-v="any">Any</button><button type="button" data-v="apartment">Apartment</button><button type="button" data-v="house">House</button><button type="button" data-v="townhome">Townhome</button><button type="button" data-v="loft">Loft</button></div>
+              <span class="cr-tip">Loft = an apartment that's two-story in some way: a loft bedroom upstairs, a mezzanine, or 20 ft ceilings.</span></div>
             <div class="cr-f"><span class="cr-l" id="l-beds">Bedrooms</span>
               <div class="pills" data-name="beds" role="group" aria-labelledby="l-beds"><button type="button" data-v="any">Any</button><button type="button" data-v="0">Studio</button><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3+</button></div></div>
             <div class="cr-f"><span class="cr-l" id="l-baths">Bathrooms</span>
@@ -479,8 +480,8 @@ function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOU
 
 /* ---------- State + filtering ---------- */
 const S={area:"",kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null,tourIdx:0};
-const KIND_LBL={apartment:"Apartment",house:"House",townhome:"Townhome"};
-const KIND_PL={apartment:"Apartments",house:"Rental homes",townhome:"Townhomes"};
+const KIND_LBL={apartment:"Apartment",house:"House",townhome:"Townhome",loft:"Loft"};
+const KIND_PL={apartment:"Apartments",house:"Rental homes",townhome:"Townhomes",loft:"Lofts"};
 const $=id=>document.getElementById(id);
 const fmt=n=>n?"$"+n.toLocaleString("en-US"):"Call";
 const tourOf=pl=>pl.tour||TOURS[pl.key]||null;
@@ -540,7 +541,7 @@ function localParse(q){
   if(/island/.test(t)) g.push({label:"Kitchen island",outdoor_types:[],min_size:null,any_tags:["kitchen_island","breakfast_bar"]});
   if(/washer|dryer|laundry/.test(t)) g.push({label:"Washer & dryer",outdoor_types:[],min_size:null,any_tags:["washer_dryer","laundry_room"]});
   if(/fireplace/.test(t)) g.push({label:"Fireplace",outdoor_types:[],min_size:null,any_tags:["fireplace"]});
-  if(/house|home(?!\s*office)/.test(t)) kinds.push("house"); if(/townhome|townhouse/.test(t)) kinds.push("townhome"); if(/apartment|apt/.test(t)) kinds.push("apartment");
+  if(/house|home(?!\s*office)/.test(t)) kinds.push("house"); if(/townhome|townhouse/.test(t)) kinds.push("townhome"); if(/\bloft|two.?stor(y|ey) apart|high ceiling|20 ?ft/.test(t)) kinds.push("loft"); if(/apartment|apt/.test(t)) kinds.push("apartment");
   return {groups:g,kinds,text:g.length||kinds.length?[]:t.split(/\s+/).filter(w=>w.length>2)};
 }
 async function parseMust(q){
@@ -578,7 +579,9 @@ const TH_NAME={test:n=>/town ?home|town ?house|carriage/i.test(n)||/^TH(\d|[A-Z]
 function planKind(p,pl){
   if(p.listing) return p.kind;
   const f=FEAT[pl.fk]||{};
+  if(f.kind==="loft") return "loft";
   if(TH_NAME.test(pl.code)||f.kind==="townhome") return "townhome";
+  if(/\bloft\b/i.test(pl.code)&&p.kind==="apartment") return "loft";
   return p.kind;
 }
 function kindWanted(){ return S.kind!=="any"?[S.kind]:(QP?.kinds||[]); }
@@ -687,7 +690,7 @@ function render(quiet){
       ${open?`<div class="c-body">
         <div class="c-info">${esc(r.p.addr)}${r.p.manager?` &middot; Listed by ${esc(r.p.manager.replace(/\s*\(.*?\)|\s+-\s+.*$/g,""))}`:""}${r.p.live?' <span class="fresh live">Live</span>':` <span class="fresh saved">Saved ${r.p.updated.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>`}</div>
         ${r.plans.map(({pl,m,why})=>`<button class="plan" data-key="${esc(pl.key)}" aria-current="${S.sel===pl.key}">
-          <span class="meta"><b>${r.p.listing?"See photos and details":esc(pl.code)}</b>${!r.p.listing&&planKind(r.p,pl)==="townhome"&&r.p.kind!=="townhome"?' <span class="kindtag" style="margin-left:4px">Townhome</span>':""}<small>${bedLbl(pl.beds)}, ${pl.baths} ba${pl.sqft?", "+pl.sqft.toLocaleString()+" sq ft":""}${tourOf(pl)?` &middot; ${tourKind(tourOf(pl))}`:""}</small>${why&&why.length?`<span class="why">${esc(why.join(" · "))}</span>`:""}</span>
+          <span class="meta"><b>${r.p.listing?"See photos and details":esc(pl.code)}</b>${!r.p.listing&&["townhome","loft"].includes(planKind(r.p,pl))&&r.p.kind!==planKind(r.p,pl)?` <span class="kindtag" style="margin-left:4px">${KIND_LBL[planKind(r.p,pl)]}</span>`:""}<small>${bedLbl(pl.beds)}, ${pl.baths} ba${pl.sqft?", "+pl.sqft.toLocaleString()+" sq ft":""}${tourOf(pl)?` &middot; ${tourKind(tourOf(pl))}`:""}</small>${why&&why.length?`<span class="why">${esc(why.join(" · "))}</span>`:""}</span>
           <span class="avail"><b>${priceFrom(m)?fmt(priceFrom(m)):"Call"}</b><small>${m.length} open</small></span>
         </button>`).join("")}
         <div class="c-links">${r.p.site?`<a href="${esc(r.p.site)}" target="_blank" rel="noopener">${r.p.listing?"View listing":"Website"}</a>`:""}${r.p.phone?`<span>${esc(r.p.phone)}</span>`:""}</div>
@@ -935,7 +938,7 @@ function updateLoader(){
 }
 function showLoader(){
   $("ld-area").textContent=S.area; $("ld-err").hidden=true; $("ld-steps").hidden=false;
-  $("ld-title").textContent=S.kind==="house"?"Finding rental homes":S.kind==="townhome"?"Finding townhomes":S.kind==="apartment"?"Finding apartments":"Finding rentals";
+  $("ld-title").textContent=S.kind==="house"?"Finding rental homes":S.kind==="townhome"?"Finding townhomes":S.kind==="loft"?"Finding lofts":S.kind==="apartment"?"Finding apartments":"Finding rentals";
   SHOWN=Math.min(PROG.p,.9); showStep(3); updateLoader();
   clearInterval(LD_TIMER); LD_TIMER=setInterval(updateLoader,120);
 }
