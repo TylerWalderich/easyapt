@@ -29,6 +29,8 @@ type Listing = { id: string; title: string; addr: string; beds: number; baths: n
 const SMART_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/smart`;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const DISCOVERY_V = 3;
+const DETECT_BATCH = 24;
+const SELF_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/search`;
 
 // ---------- helpers ----------
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -220,9 +222,10 @@ async function detect(c: { place_id: string; website: string | null; kind?: stri
   // Same-site floor plan links found on the home page are checked too.
   const extra: string[] = [];
   for (const p of PATHS) {
-    const { status, text } = await getText(base + p, 7000);
+    const { status, text: full } = await getText(base + p, 7000);
     if (p === "" && (status === 403 || status === 429)) { blocked = true; break; }
-    if (!text) continue;
+    if (!full) continue;
+    const text = full.slice(0, 400000); // keeps regex work inside the CPU budget
     if (p === "") {
       for (const m of text.matchAll(/href="(\/[^"#?]*(?:floor-?plans?|availability)[^"#?]*)"/gi)) if (extra.length < 3) extra.push(m[1].replace(/^\//, ""));
       for (const [name, re] of SIGS) if (platform === "unknown" && re.test(text)) platform = name;
@@ -234,7 +237,7 @@ async function detect(c: { place_id: string; website: string | null; kind?: stri
   }
   if ((!embeds.size || !tours.size) && !blocked) {
     for (const p of extra) {
-      const { text } = await getText(base + p, 7000);
+      const text = (await getText(base + p, 7000)).text.slice(0, 400000);
       for (const m of text.matchAll(RE_SIGHTMAP)) embeds.add(m[1]);
       collectTours(text, tours);
       if (!g5urn) g5urn = text.match(RE_G5)?.[0] ?? "";
@@ -503,13 +506,21 @@ async function runSearch(area: string, progress: Progress) {
   progress(0.2, `Found ${comms.length} rental properties and managers`, { found: comms.length });
   const stale = comms.filter((c) => !c.detected_at || Date.now() - new Date(c.detected_at).getTime() > 30 * DAY);
   if (stale.length) {
+    // Each function run has a small CPU budget, so a big city's websites are checked in batches:
+    // the first batch now, the rest in separate background runs (ready for the next search).
+    const now = stale.slice(0, DETECT_BATCH), later = stale.slice(DETECT_BATCH);
+    for (let i = 0; i < later.length; i += DETECT_BATCH) {
+      const ids = later.slice(i, i + DETECT_BATCH).map((c) => c.place_id);
+      // @ts-ignore EdgeRuntime is provided by Supabase
+      EdgeRuntime.waitUntil(fetch(SELF_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}`, apikey: ANON }, body: JSON.stringify({ detect: ids }) }).catch(() => {}));
+    }
     let done = 0;
-    progress(0.21, `Checking ${stale.length} property websites`);
-    await withTimeout(pool(stale, 16, async (c) => {
+    progress(0.21, `Checking ${now.length} property websites`);
+    await withTimeout(pool(now, 8, async (c) => {
       const r = await detect(c);
-      done++; progress(0.21 + 0.24 * (done / stale.length), `Checking property websites (${done} of ${stale.length})`);
+      done++; progress(0.21 + 0.24 * (done / now.length), `Checking property websites (${done} of ${now.length})`);
       return r;
-    }), 75000).catch(() => {});
+    }), 60000).catch(() => {});
     comms = (await sb.from("communities").select("*").contains("area_keys", [key])).data ?? [];
   }
   const { data: aa } = await sb.from("areas").select("lat,lng,query").eq("area_key", key).maybeSingle();
@@ -562,7 +573,13 @@ async function runSearch(area: string, progress: Progress) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  const { area: rawArea, stream } = await req.json().catch(() => ({}));
+  const { area: rawArea, stream, detect: ids } = await req.json().catch(() => ({}));
+  // Background batch: check these property websites (sent by a search for a big area).
+  if (Array.isArray(ids) && ids.length) {
+    const { data } = await sb.from("communities").select("place_id, website, kind").in("place_id", ids.slice(0, DETECT_BATCH));
+    await withTimeout(pool(data ?? [], 8, (c) => detect(c)), 120000).catch(() => {});
+    return json({ checked: (data ?? []).length });
+  }
   const area = String(rawArea ?? "").trim().slice(0, 80);
   if (area.length < 2) return json({ error: "Enter a city, neighborhood, or ZIP code." }, 400);
   // stream: true sends one JSON line per step ({p, msg}), then {result} — this drives the site's progress bar.
