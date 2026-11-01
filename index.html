@@ -948,8 +948,8 @@ function othersHtml(){
   const toks=S.q.toLowerCase().split(/\s+/).filter(Boolean);
   const list=OTHERS.filter(o=>!toks.length||toks.every(t=>(o.name+" "+(o.addr||"")).toLowerCase().includes(t)));
   if(!list.length) return "";
-  return `<details class="others"><summary>${list.length} more nearby without online availability</summary>
-    ${list.map(o=>`<div class="other"><div><b>${esc(o.name)}</b><small>${esc((o.addr||"").replace(/,\s*USA$/,""))}</small></div>${o.site?`<a class="btn ghost" href="${esc(o.site)}" target="_blank" rel="noopener">Website</a>`:""}</div>`).join("")}</details>`;
+  return `<details class="others"><summary>${list.length} more nearby without online availability${LANDMARK?", closest first":""}</summary>
+    ${list.map(o=>`<div class="other"><div><b>${esc(o.name)}</b><small>${distLbl(o)?`<span class="dist">${esc(distLbl(o))}</span> · `:""}${esc((o.addr||"").replace(/,\s*USA$/,""))}</small></div>${o.site?`<a class="btn ghost" href="${esc(o.site)}" target="_blank" rel="noopener">Website</a>`:""}</div>`).join("")}</details>`;
 }
 
 /* ---------- Detail panel ---------- */
@@ -1192,7 +1192,12 @@ function loaderError(msg){
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function applyResults(res){
   const comms=res.communities||[];
-  OTHERS=comms.filter(c=>!(c.models&&c.models.length)&&c.site&&c.lat!=null).sort((a,b)=>a.name.localeCompare(b.name));
+  // Places without posted availability: closest first in a proximity search, otherwise A to Z.
+  const near0=!!(res.area&&res.area.landmark);
+  const reachOf=o=>o.driveMin!=null?o.driveMin:o.distMi!=null?o.distMi:999;
+  OTHERS=comms.filter(c=>!(c.models&&c.models.length)&&c.site&&c.lat!=null)
+    .map(c=>({...c,distMi:c.dist_mi??null,driveMin:c.drive_min??null,driveEst:!!c.drive_est}))
+    .sort((a,b)=>near0?reachOf(a)-reachOf(b)||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
   // Listings from property managers can span a metro; keep the ones within about 25 km of the searched area.
   const ctr=res.area&&res.area.lat!=null?[res.area.lat,res.area.lng]:null;
   LANDMARK=res.area&&res.area.landmark||null;
