@@ -440,7 +440,7 @@ html{overflow-x:clip}
         <form id="step2" class="criteria step" autocomplete="off" hidden>
           <button type="button" class="cr-back" id="backto1"><span aria-hidden="true">&larr;</span> <span id="cr-area"></span></button>
           <h2>Next, what are you looking for?</h2>
-          <p class="cr-hint">Everything here is optional. Leave anything blank to see it all.</p>
+          <p class="cr-hint">Everything here is optional, and you can pick more than one rental type, bedroom count or floor.</p>
           <div class="cr-grid">
             <div class="cr-f wide"><span class="cr-l" id="l-kind">Rental type</span>
               <div class="pills" data-name="kind" role="group" aria-labelledby="l-kind"><button type="button" data-v="any">Any</button><button type="button" data-v="apartment">Apartment</button><button type="button" data-v="house">House</button><button type="button" data-v="townhome">Townhome</button><button type="button" data-v="loft">Loft</button></div>
@@ -567,7 +567,8 @@ try{TOURS=JSON.parse(localStorage.getItem("easyapt-tours")||"{}")}catch(e){TOURS
 function saveTours(){try{localStorage.setItem("easyapt-tours",JSON.stringify(TOURS))}catch(e){}}
 
 /* ---------- State + filtering ---------- */
-const S={area:"",near:null,kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null,tourIdx:0};
+// kind, beds and floor are lists: several can be picked at once; an empty list means "Any".
+const S={area:"",near:null,kind:[],beds:[],baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:[],q:"",sel:null,hlProp:null,tourIdx:0};
 const KIND_LBL={apartment:"Apartment",house:"House",townhome:"Townhome",loft:"Loft"};
 const KIND_PL={apartment:"Apartments",house:"Rental homes",townhome:"Townhomes",loft:"Lofts"};
 const $=id=>document.getElementById(id);
@@ -599,13 +600,20 @@ function unitMatches(u,p){
   if(u.price>S.budget) return false;
   if(S.minRent && u.price && u.price<S.minRent) return false;
   if(S.movein && u.avail>new Date(S.movein+"T23:59")) return false;
-  if(S.floor==="ground" && u.floor!==1 && u.source!=="unknown") return false;
-  if(S.floor==="upper" && u.floor===1) return false;
-  if(S.floor==="top" && u.floor!==p.stories && u.source!=="unknown") return false;
+  if(S.floor.length && !S.floor.some(f=>floorOk(f,u,p))) return false;
   return true;
 }
+function floorOk(f,u,p){
+  if(f==="ground") return u.floor===1||u.source==="unknown";
+  if(f==="upper") return u.floor!==1;
+  if(f==="top") return u.floor===p.stories||u.source==="unknown";
+  return true;
+}
+const bedOk=(b,pl)=>b==="3"?pl.beds>=3:b==="1d"?pl.beds===1:pl.beds===+b;
+// A 1-bedroom needs a den only when "1 + den" is picked and plain "1" isn't.
+const needDen=pl=>pl.beds===1&&S.beds.includes("1d")&&!S.beds.includes("1");
 function planMatches(pl){
-  if(S.beds!=="any" && (S.beds==="3" ? pl.beds<3 : S.beds==="1d" ? pl.beds!==1 : pl.beds!==+S.beds)) return false;
+  if(S.beds.length && !S.beds.some(b=>bedOk(b,pl))) return false;
   if(pl.baths<S.baths) return false;
   if(pl.sqft<S.sqft) return false;
   return true;
@@ -699,7 +707,7 @@ function denMatch(p,pl){
   if(/\bden\b|office|study/i.test(f.summary||"")) return {ok:true,why:"Den / office"};
   return {ok:false};
 }
-function kindWanted(){ return S.kind!=="any"?[S.kind]:(QP?.kinds||[]); }
+function kindWanted(){ return S.kind.length?S.kind:(QP?.kinds||[]); }
 let PENDING_N=0;
 function results(){
   const out=[]; PENDING_N=0;
@@ -714,7 +722,7 @@ function results(){
         continue;
       }
       let den=null;
-      if(S.beds==="1d"){ den=denMatch(p,pl); if(den.pending){ if(pl.units.some(u=>unitMatches(u,p))) PENDING_N++; continue; } if(!den.ok) continue; }
+      if(needDen(pl)){ den=denMatch(p,pl); if(den.pending){ if(pl.units.some(u=>unitMatches(u,p))) PENDING_N++; continue; } if(!den.ok) continue; }
       const mm=mustMatch(p,pl);
       if(mm.pending){PENDING_N++;continue}
       if(!mm.ok) continue;
@@ -750,7 +758,7 @@ function kickTagger(){
 function watchFeatures(){
   clearTimeout(POLL);
   const missing=allKeys().filter(k=>!FEAT[k]);
-  if(!missing.length||(!kindWanted().length&&S.beds!=="1d"&&(!QP||!(QP.groups||[]).length))) return;
+  if(!missing.length||(!kindWanted().length&&!S.beds.includes("1d")&&(!QP||!(QP.groups||[]).length))) return;
   if(!POLL_START) POLL_START=Date.now();
   if(Date.now()-POLL_START>6*60e3) return;
   kickTagger();
@@ -832,16 +840,16 @@ const priceFrom=units=>{const p=units.filter(u=>u.price).map(u=>u.price);return 
 function relaxOptions(){
   const save={...S}, saveQP=QP, opts=[];
   const tryIt=(label,apply)=>{ Object.assign(S,save); QP=saveQP; apply(); const r=results(); const n=r.length; Object.assign(S,save); QP=saveQP; if(n) opts.push({label,n,apply}); };
-  if(S.beds==="1d") tryIt("with 1 bedroom, den or not",()=>{S.beds="1"});
-  if(S.beds!=="any"&&S.beds!=="3"&&S.beds!=="1d") tryIt(S.beds==="0"?"with 1+ bedrooms":`with ${+S.beds+1}+ bedrooms`,()=>{S.beds=S.beds==="0"?"1":String(Math.min(+S.beds+1,3))});
-  if(S.beds!=="any") tryIt("with any number of bedrooms",()=>{S.beds="any"});
-  if(S.kind!=="any") tryIt("of any rental type",()=>{S.kind="any"});
+  if(S.beds.includes("1d")&&!S.beds.includes("1")) tryIt("with 1 bedroom, den or not",()=>{S.beds=[...S.beds.filter(b=>b!=="1d"),"1"]});
+  if(S.beds.length===1&&["0","1","2"].includes(S.beds[0])) tryIt(S.beds[0]==="0"?"with 1 bedroom":`with ${+S.beds[0]+1}${S.beds[0]==="2"?"+":""} bedrooms`,()=>{S.beds=[String(+S.beds[0]+1)]});
+  if(S.beds.length) tryIt("with any number of bedrooms",()=>{S.beds=[]});
+  if(S.kind.length) tryIt("of any rental type",()=>{S.kind=[]});
   if(S.budget<99999) tryIt(`up to ${fmt(Math.round(S.budget*1.15/50)*50)}`,()=>{S.budget=Math.round(S.budget*1.15/50)*50});
   if(S.minRent) tryIt("with no minimum rent",()=>{S.minRent=0});
   if(S.baths) tryIt("with any number of bathrooms",()=>{S.baths=0});
   if(S.sqft) tryIt("of any size",()=>{S.sqft=0});
   if(S.movein) tryIt("with any move-in date",()=>{S.movein=""});
-  if(S.floor!=="any") tryIt("on any floor",()=>{S.floor="any"});
+  if(S.floor.length) tryIt("on any floor",()=>{S.floor=[]});
   if(QP&&S.q) tryIt(`without “${S.q}”`,()=>{QP=null});
   const seen=new Set(); RELAX=opts.filter(o=>!seen.has(o.label)&&seen.add(o.label)).sort((a,b)=>b.n-a.n).slice(0,4);
   return RELAX;
@@ -851,7 +859,7 @@ function render(quiet){
   const res=results();
   const nu=res.reduce((a,r)=>a+r.plans.reduce((b,x)=>b+x.m.length,0),0);
   const tagged=allKeys().filter(k=>FEAT[k]).length, totalK=allKeys().length;
-  const what=S.q?`“${esc(S.q)}”`:S.beds==="1d"?"dens and offices":kindWanted().map(k=>(KIND_PL[k]||k).toLowerCase()).join(" and ");
+  const what=S.q?`“${esc(S.q)}”`:S.beds.includes("1d")&&!kindWanted().length?"dens and offices":kindWanted().map(k=>(KIND_PL[k]||k).toLowerCase()).join(" and ");
   const reading=PENDING_N?`<div class="reading"><span class="checking"></span>Reading floor plans for ${what}: ${tagged.toLocaleString()} of ${totalK.toLocaleString()} checked. More matches will appear.</div>`:"";
   $("count").innerHTML=(res.length?`<span><b>${res.length} ${res.length===1?"rental":"rentals"}</b> · ${nu.toLocaleString()} open ${nu===1?"unit":"units"}</span><select class="sort" id="sort" aria-label="Sort">${LANDMARK?'<option value="close">Closest</option>':""}<option value="price">Lowest price</option><option value="price-desc">Highest price</option><option value="units">Most open units</option><option value="name">Name</option></select>`:"")+reading;
   if($("sort")) $("sort").value=S.sort||"price";
@@ -1169,7 +1177,7 @@ function updateLoader(){
 }
 function showLoader(){
   $("ld-area").textContent=S.area; $("ld-err").hidden=true; $("ld-steps").hidden=false;
-  $("ld-title").textContent=S.kind==="house"?"Finding rental homes":S.kind==="townhome"?"Finding townhomes":S.kind==="loft"?"Finding lofts":S.kind==="apartment"?"Finding apartments":"Finding rentals";
+  $("ld-title").textContent=S.kind.length&&S.kind.length<4?"Finding "+listJoin(S.kind.map(k=>KIND_PL[k].toLowerCase()),"and"):"Finding rentals";
   SHOWN=Math.min(PROG.p,.9); showStep(3); updateLoader();
   clearInterval(LD_TIMER); LD_TIMER=setInterval(updateLoader,120);
 }
@@ -1201,17 +1209,19 @@ function applyResults(res){
 }
 function critSummary(){
   const bits=[S.area];
-  if(S.kind!=="any") bits.push(KIND_PL[S.kind]);
-  if(S.beds!=="any") bits.push(S.beds==="0"?"Studio":S.beds==="3"?"3+ bd":S.beds==="1d"?"1 bd + den":S.beds+" bd");
+  if(S.kind.length) bits.push(listJoin(S.kind.map(k=>KIND_PL[k]),"or"));
+  if(S.beds.length) bits.push(listJoin(S.beds.map(b=>b==="0"?"Studio":b==="3"?"3+ bd":b==="1d"?"1 bd + den":b+" bd"),"or"));
   if(S.baths) bits.push(S.baths+"+ ba");
   if(S.minRent&&S.budget<99999) bits.push(`${fmt(S.minRent)} to ${fmt(S.budget)}`); else if(S.budget<99999) bits.push("under "+fmt(S.budget)); else if(S.minRent) bits.push("over "+fmt(S.minRent));
   if(S.movein) bits.push("by "+new Date(S.movein+"T12:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}));
   if(S.sqft) bits.push(S.sqft+"+ sq ft");
-  if(S.floor!=="any") bits.push(S.floor==="ground"?"ground floor":S.floor==="upper"?"upper floor":"top floor");
+  if(S.floor.length) bits.push(listJoin(S.floor,"or")+" floor");
   if(S.q) bits.push(`"${S.q}"`);
   return bits.join(", ");
 }
-function setPills(name,val){ document.querySelectorAll(`.pills[data-name="${name}"] button`).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===String(val)))); }
+const MULTI=new Set(["kind","beds","floor"]);
+const listJoin=(a,w)=>a.length<3?a.join(` ${w} `):a.slice(0,-1).join(", ")+`, ${w} `+a[a.length-1];
+function setPills(name,val){ document.querySelectorAll(`.pills[data-name="${name}"] button`).forEach(b=>b.setAttribute("aria-pressed",String(Array.isArray(val)?(b.dataset.v==="any"?!val.length:val.includes(b.dataset.v)):b.dataset.v===String(val)))); }
 function fillCriteria(){
   $("cr-area").textContent=S.area;
   setPills("kind",S.kind); setPills("beds",S.beds); setPills("baths",S.baths); setPills("floor",S.floor);
@@ -1225,7 +1235,11 @@ function showStep(n){
 function showHome(){ showStep(1); try{history.replaceState(null,"",location.pathname+location.search)}catch(e){} }
 function showCriteria(){ fillCriteria(); if(READY_AREA===searchKey()) $("cr-status").textContent=""; showStep(2); }
 document.querySelectorAll(".pills").forEach(g=>g.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
-  const name=g.dataset.name, v=b.dataset.v; S[name]=name==="baths"?+v:v; setPills(name,S[name]);}));
+  const name=g.dataset.name, v=b.dataset.v;
+  // Rental type, bedrooms and floor take several picks; "Any" clears them. Bathrooms is a minimum, so one pick.
+  if(MULTI.has(name)) S[name]=v==="any"?[]:S[name].includes(v)?S[name].filter(x=>x!==v):[...S[name],v];
+  else S[name]=name==="baths"?+v:v;
+  setPills(name,S[name]);}));
 $("homeform").addEventListener("submit",e=>{
   e.preventDefault();
   const area=$("h-area").value.trim();
@@ -1234,7 +1248,7 @@ $("homeform").addEventListener("submit",e=>{
   beginSearch({area,near:null});
 });
 function beginSearch(o){
-  Object.assign(S,o,{kind:"any",beds:"any",baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:"any",q:"",sel:null,hlProp:null});
+  Object.assign(S,o,{kind:[],beds:[],baths:0,minRent:0,budget:99999,sqft:0,movein:"",floor:[],q:"",sel:null,hlProp:null});
   OPEN.clear(); LANDMARK=null;
   $("cr-status").innerHTML='<span class="checking"></span>Checking rental listings in the background';
   startSearch(searchKey()).catch(()=>{});
