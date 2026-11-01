@@ -445,15 +445,15 @@ html{overflow-x:clip}
             <div class="cr-f wide"><span class="cr-l" id="l-kind">Rental type</span>
               <div class="pills" data-name="kind" role="group" aria-labelledby="l-kind"><button type="button" data-v="any">Any</button><button type="button" data-v="apartment">Apartment</button><button type="button" data-v="house">House</button><button type="button" data-v="townhome">Townhome</button><button type="button" data-v="loft">Loft</button></div>
               <span class="cr-tip">Loft = an apartment that's two-story in some way: a loft bedroom upstairs, a mezzanine, or 20 ft ceilings.</span></div>
-            <div class="cr-f"><span class="cr-l" id="l-beds">Bedrooms</span>
-              <div class="pills" data-name="beds" role="group" aria-labelledby="l-beds"><button type="button" data-v="any">Any</button><button type="button" data-v="0">Studio</button><button type="button" data-v="1">1</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3+</button></div></div>
+            <div class="cr-f wide"><span class="cr-l" id="l-beds">Bedrooms</span>
+              <div class="pills" data-name="beds" role="group" aria-labelledby="l-beds"><button type="button" data-v="any">Any</button><button type="button" data-v="0">Studio</button><button type="button" data-v="1">1</button><button type="button" data-v="1d">1 + den</button><button type="button" data-v="2">2</button><button type="button" data-v="3">3+</button></div></div>
             <div class="cr-f"><span class="cr-l" id="l-baths">Bathrooms</span>
               <div class="pills" data-name="baths" role="group" aria-labelledby="l-baths"><button type="button" data-v="0">Any</button><button type="button" data-v="1">1+</button><button type="button" data-v="2">2+</button></div></div>
             <div class="cr-f"><span class="cr-l">Monthly rent</span>
               <div class="range"><label class="sr" for="c-min">Minimum rent</label><input id="c-min" type="number" inputmode="numeric" min="0" step="25" placeholder="No min"><span>to</span><label class="sr" for="c-max">Maximum rent</label><input id="c-max" type="number" inputmode="numeric" min="0" step="25" placeholder="No max"></div></div>
             <div class="cr-f"><label class="cr-l" for="c-move">Move in by</label><input id="c-move" type="date"></div>
             <div class="cr-f"><label class="cr-l" for="c-sqft">Minimum size (sq ft)</label><input id="c-sqft" type="number" inputmode="numeric" min="0" step="25" placeholder="Any size"></div>
-            <div class="cr-f"><span class="cr-l" id="l-floor">Floor</span>
+            <div class="cr-f wide"><span class="cr-l" id="l-floor">Floor</span>
               <div class="pills" data-name="floor" role="group" aria-labelledby="l-floor"><button type="button" data-v="any">Any</button><button type="button" data-v="ground">Ground</button><button type="button" data-v="upper">Upper</button><button type="button" data-v="top">Top</button></div></div>
             <div class="cr-f wide"><label class="cr-l" for="c-q">Must-haves</label><input id="c-q" maxlength="100" placeholder="Try: big terrace, garage, home office, fenced yard">
               <span class="cr-tip">We read every floor plan and listing photo, so this finds features even when the website never mentions them.</span></div>
@@ -605,7 +605,7 @@ function unitMatches(u,p){
   return true;
 }
 function planMatches(pl){
-  if(S.beds!=="any" && (S.beds==="3" ? pl.beds<3 : pl.beds!==+S.beds)) return false;
+  if(S.beds!=="any" && (S.beds==="3" ? pl.beds<3 : S.beds==="1d" ? pl.beds!==1 : pl.beds!==+S.beds)) return false;
   if(pl.baths<S.baths) return false;
   if(pl.sqft<S.sqft) return false;
   return true;
@@ -683,6 +683,22 @@ const LOFT_NAME=/loft|mezz|penthouse|\bPH\d*\b|split.?level|two.?stor(e?y)|2.?st
 const LOFT_TEXT=/\bloft\b|mezzanine|open[- ]to[- ]below|double[- ]height|two[- ]level|two[- ]story|spiral stair|interior stair|upper level|\b(1[6-9]|2\d)['’ -]?(ft|foot|feet)?\s*ceiling/i;
 // Before the AI has read a plan we can't tell its type unless the name says so.
 function kindKnown(p,pl){ return p.listing||!!FEAT[pl.fk]||TH_NAME.test(pl.code)||LOFT_NAME.test(pl.code)||!pl.fk; }
+// "1 + den": a 1-bedroom whose plan has a den, office, study, flex room or loft space.
+const DEN_NAME=/\bden\b|office|study|flex|\bw\/\s*d\b/i;
+function denMatch(p,pl){
+  if(DEN_NAME.test(pl.code)) return {ok:true,why:"Den (plan name)"};
+  const f=FEAT[pl.fk];
+  if(!f){
+    if(p.listing&&DEN_NAME.test(p.desc||"")) return {ok:true,why:"Den / office"};
+    return pl.fk?{pending:true}:{ok:false};
+  }
+  const t=f.tags||[];
+  if(t.includes("den_office")) return {ok:true,why:"Den / office"};
+  if(t.includes("flex_room")) return {ok:true,why:"Flex room"};
+  if(t.includes("loft")) return {ok:true,why:"Loft space"};
+  if(/\bden\b|office|study/i.test(f.summary||"")) return {ok:true,why:"Den / office"};
+  return {ok:false};
+}
 function kindWanted(){ return S.kind!=="any"?[S.kind]:(QP?.kinds||[]); }
 let PENDING_N=0;
 function results(){
@@ -697,11 +713,13 @@ function results(){
         if(!kindKnown(p,pl)&&p.kind==="apartment"&&want.some(k=>k==="loft"||k==="townhome")&&pl.units.some(u=>unitMatches(u,p))) PENDING_N++;
         continue;
       }
+      let den=null;
+      if(S.beds==="1d"){ den=denMatch(p,pl); if(den.pending){ if(pl.units.some(u=>unitMatches(u,p))) PENDING_N++; continue; } if(!den.ok) continue; }
       const mm=mustMatch(p,pl);
       if(mm.pending){PENDING_N++;continue}
       if(!mm.ok) continue;
       const m=pl.units.filter(u=>unitMatches(u,p));
-      if(m.length) plans.push({pl,m,why:mm.why});
+      if(m.length) plans.push({pl,m,why:den?[den.why,...mm.why]:mm.why});
     }
     if(plans.length) out.push({p,plans});
   }
@@ -732,7 +750,7 @@ function kickTagger(){
 function watchFeatures(){
   clearTimeout(POLL);
   const missing=allKeys().filter(k=>!FEAT[k]);
-  if(!missing.length||(!kindWanted().length&&(!QP||!(QP.groups||[]).length))) return;
+  if(!missing.length||(!kindWanted().length&&S.beds!=="1d"&&(!QP||!(QP.groups||[]).length))) return;
   if(!POLL_START) POLL_START=Date.now();
   if(Date.now()-POLL_START>6*60e3) return;
   kickTagger();
@@ -814,7 +832,8 @@ const priceFrom=units=>{const p=units.filter(u=>u.price).map(u=>u.price);return 
 function relaxOptions(){
   const save={...S}, saveQP=QP, opts=[];
   const tryIt=(label,apply)=>{ Object.assign(S,save); QP=saveQP; apply(); const r=results(); const n=r.length; Object.assign(S,save); QP=saveQP; if(n) opts.push({label,n,apply}); };
-  if(S.beds!=="any"&&S.beds!=="3") tryIt(S.beds==="0"?"with 1+ bedrooms":`with ${+S.beds+1}+ bedrooms`,()=>{S.beds=S.beds==="0"?"1":String(Math.min(+S.beds+1,3))});
+  if(S.beds==="1d") tryIt("with 1 bedroom, den or not",()=>{S.beds="1"});
+  if(S.beds!=="any"&&S.beds!=="3"&&S.beds!=="1d") tryIt(S.beds==="0"?"with 1+ bedrooms":`with ${+S.beds+1}+ bedrooms`,()=>{S.beds=S.beds==="0"?"1":String(Math.min(+S.beds+1,3))});
   if(S.beds!=="any") tryIt("with any number of bedrooms",()=>{S.beds="any"});
   if(S.kind!=="any") tryIt("of any rental type",()=>{S.kind="any"});
   if(S.budget<99999) tryIt(`up to ${fmt(Math.round(S.budget*1.15/50)*50)}`,()=>{S.budget=Math.round(S.budget*1.15/50)*50});
@@ -832,7 +851,7 @@ function render(quiet){
   const res=results();
   const nu=res.reduce((a,r)=>a+r.plans.reduce((b,x)=>b+x.m.length,0),0);
   const tagged=allKeys().filter(k=>FEAT[k]).length, totalK=allKeys().length;
-  const what=S.q?`“${esc(S.q)}”`:kindWanted().map(k=>(KIND_PL[k]||k).toLowerCase()).join(" and ");
+  const what=S.q?`“${esc(S.q)}”`:S.beds==="1d"?"dens and offices":kindWanted().map(k=>(KIND_PL[k]||k).toLowerCase()).join(" and ");
   const reading=PENDING_N?`<div class="reading"><span class="checking"></span>Reading floor plans for ${what}: ${tagged.toLocaleString()} of ${totalK.toLocaleString()} checked. More matches will appear.</div>`:"";
   $("count").innerHTML=(res.length?`<span><b>${res.length} ${res.length===1?"rental":"rentals"}</b> · ${nu.toLocaleString()} open ${nu===1?"unit":"units"}</span><select class="sort" id="sort" aria-label="Sort">${LANDMARK?'<option value="close">Closest</option>':""}<option value="price">Lowest price</option><option value="price-desc">Highest price</option><option value="units">Most open units</option><option value="name">Name</option></select>`:"")+reading;
   if($("sort")) $("sort").value=S.sort||"price";
@@ -1183,7 +1202,7 @@ function applyResults(res){
 function critSummary(){
   const bits=[S.area];
   if(S.kind!=="any") bits.push(KIND_PL[S.kind]);
-  if(S.beds!=="any") bits.push(S.beds==="0"?"Studio":S.beds==="3"?"3+ bd":S.beds+" bd");
+  if(S.beds!=="any") bits.push(S.beds==="0"?"Studio":S.beds==="3"?"3+ bd":S.beds==="1d"?"1 bd + den":S.beds+" bd");
   if(S.baths) bits.push(S.baths+"+ ba");
   if(S.minRent&&S.budget<99999) bits.push(`${fmt(S.minRent)} to ${fmt(S.budget)}`); else if(S.budget<99999) bits.push("under "+fmt(S.budget)); else if(S.minRent) bits.push("over "+fmt(S.minRent));
   if(S.movein) bits.push("by "+new Date(S.movein+"T12:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}));
