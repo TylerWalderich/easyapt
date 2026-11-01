@@ -579,8 +579,10 @@ const TH_NAME={test:n=>/town ?home|town ?house|carriage/i.test(n)||/^TH(\d|[A-Z]
 function planKind(p,pl){
   if(p.listing) return p.kind;
   const f=FEAT[pl.fk]||{};
+  // The property's own plan name wins ("TH", "Townhome"); then the AI's reading of the floor plan.
+  if(TH_NAME.test(pl.code)) return "townhome";
   if(f.kind==="loft") return "loft";
-  if(TH_NAME.test(pl.code)||f.kind==="townhome") return "townhome";
+  if(f.kind==="townhome") return "townhome";
   if(/\bloft\b/i.test(pl.code)&&p.kind==="apartment") return "loft";
   return p.kind;
 }
