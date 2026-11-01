@@ -197,10 +197,12 @@ $("sub").textContent=[P.beds!=null?(P.beds==="0"?"Studio":`${P.beds} bd`):"",P.b
 function tourInfo(url){
   let u; try{u=new URL(url)}catch(e){return null}
   const h=u.hostname.replace(/^www\./,"");
-  if(h.endsWith("matterport.com")){const id=u.searchParams.get("m");return {src:`https://my.matterport.com/show/?m=${id}&play=1&qs=1`,allow:"fullscreen; xr-spatial-tracking"}}
+  if(h.endsWith("matterport.com")){const id=u.searchParams.get("m");if(!id) return null;return {src:`https://my.matterport.com/show/?m=${id}&play=1&qs=1`,allow:"fullscreen; xr-spatial-tracking"}}
   if(/youtube(-nocookie)?\.com$/.test(h)||h==="youtu.be"){const id=u.searchParams.get("v")||u.pathname.split("/").pop();return {src:`https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1`,allow:"autoplay; fullscreen; picture-in-picture"}}
   if(h.endsWith("vimeo.com")){const id=(u.pathname.match(/(\d{6,})/)||[])[1];return {src:`https://player.vimeo.com/video/${id}`,allow:"autoplay; fullscreen; picture-in-picture"}}
-  if(h.includes("wistia")){const id=(u.pathname.match(/(?:iframe|medias)\/([a-z0-9]+)/i)||[])[1];return {src:id?`https://fast.wistia.net/embed/iframe/${id}`:url,allow:"autoplay; fullscreen"}}
+  // Wistia: only real videos (a 10-character media id) count; player scripts and empty templates are skipped.
+  if(h.includes("wistia")){const id=(u.pathname.match(/(?:iframe|medias|embed)\/([a-z0-9]{8,12})(?:[\/.]|$)/i)||[])[1];return id?{src:`https://fast.wistia.net/embed/iframe/${id}`,allow:"autoplay; fullscreen"}:null}
+  if(/\.(js|css|bin|json|jsonp|xml|png|jpe?g|svg|gif|webp|woff2?)$/i.test(u.pathname)||/oembed|player\.js|\/assets\//i.test(u.href)) return null;
   return {src:url,allow:"fullscreen; autoplay; xr-spatial-tracking; gyroscope; accelerometer"};
 }
 let VIEW="tour";

@@ -218,11 +218,51 @@ async function furniture(b: any) {
   return { reply: String(p.reply ?? "").slice(0, 1200), add };
 }
 
+// ---------- Listing photo galleries ----------
+// Buildium listing pages are public and carry the full gallery. AppFolio's robots.txt only allows its
+// summary page (one photo per home), so AppFolio galleries are not read.
+const BUILDIUM_LISTING = /^https:\/\/([a-z0-9-]+)\.managebuilding\.com\/Resident\/public\/rentals\/(\d+)$/i;
+async function galleryOf(url: string): Promise<string[]> {
+  const m = url.match(BUILDIUM_LISTING);
+  if (!m) return [];
+  const base = `https://${m[1]}.managebuilding.com`;
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", Accept: "text/html" }, redirect: "follow" });
+  if (!r.ok || !/\/rentals\/\d+/i.test(r.url)) return []; // gone listings redirect to the list page
+  const html = await r.text();
+  const at = html.indexOf("unit-detail__gallery");
+  if (at < 0) return [];
+  const part = html.slice(at, at + 60000);
+  const seen = new Set<string>(), out: string[] = [];
+  for (const x of part.matchAll(/fileName=([a-f0-9]{32})(?:_\d+x\d+)?\.(jpe?g|png|webp)/gi)) {
+    const id = x[1].toLowerCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(`${base}/Resident/api/public/files/download?fileName=${id}.${x[2].toLowerCase()}`);
+  }
+  return out.slice(0, 40);
+}
+async function photos(urls: string[]) {
+  const list = [...new Set(urls.map(String).filter((u) => BUILDIUM_LISTING.test(u)))].slice(0, 12);
+  const out: Record<string, string[]> = {};
+  if (!list.length) return out;
+  const { data } = await sb.from("listing_photos").select("url,photos,at").in("url", list);
+  for (const row of data ?? []) if (Date.now() - new Date(row.at).getTime() < 3 * 86400e3) out[row.url] = row.photos;
+  await Promise.all(list.filter((u) => !out[u]).map(async (u) => {
+    try {
+      const g = await galleryOf(u);
+      out[u] = g;
+      await sb.from("listing_photos").upsert({ url: u, photos: g, at: new Date().toISOString() });
+    } catch { out[u] = []; }
+  }));
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
-    if (!AKEY) return json({ error: "AI key is not set (ANTHROPIC_API_KEY)" }, 503);
     const b = await req.json().catch(() => ({}));
+    if (b.action === "photos") return json(await photos(Array.isArray(b.urls) ? b.urls : []));
+    if (!AKEY) return json({ error: "AI key is not set (ANTHROPIC_API_KEY)" }, 503);
     if (b.action === "parse") return json(await parse(String(b.q ?? "")));
     if (b.action === "tag") return json(await tagBatch(Math.min(Number(b.budget) || 110000, 120000)));
     if (b.action === "rooms") return json(await rooms(String(b.key ?? "")));
