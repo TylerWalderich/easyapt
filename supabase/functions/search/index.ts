@@ -29,6 +29,7 @@ type Listing = { id: string; title: string; addr: string; beds: number; baths: n
 const SMART_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/smart`;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const DISCOVERY_V = 3;
+const NEAR_V = 4; // proximity lists: v4 adds a dense search right around the place
 const DETECT_BATCH = 24;
 const SELF_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/search`;
 
@@ -101,6 +102,8 @@ async function discover(area: string, key: string, circle?: Circle) {
   const Q = (what: string) => circle ? what : `${what} in ${area}`;
   const extra = (q: string, n: number, b = box) => places(q, n, b).catch(() => [] as any[]);
   const quarters = circle && circle.km > 12 ? ([[0, 0], [0, 1], [1, 0], [1, 1]] as [number, number][]) : [];
+  // Close to the place matters most, so a small box around it gets its own searches (a wide box is dominated by the big city).
+  const inner = circle && circle.km > 8 ? boxOf({ ...circle, km: Math.max(5, circle.km / 3) }) : undefined;
   const [apts, more, towns, homes, mgrs] = await Promise.all([
     places(Q("apartment complexes"), 3, box),
     Promise.all([
@@ -110,6 +113,7 @@ async function discover(area: string, key: string, circle?: Circle) {
       extra(circle ? "downtown apartments" : `downtown apartments ${area}`, 1),
       extra(Q("new apartment communities"), 1),
       ...quarters.map((q) => extra("apartment complexes", 2, boxOf(circle!, q))),
+      ...(inner ? [extra("apartment complexes", 3, inner), extra("apartments", 2, inner), extra("townhomes for rent", 1, inner), extra("loft apartments", 1, inner)] : []),
     ]).then((x) => x.flat()),
     places(Q("townhomes for rent"), 2, box).catch(() => []),
     places(Q("rental homes community"), 1, box).catch(() => []),
@@ -148,7 +152,7 @@ async function discover(area: string, key: string, circle?: Circle) {
   const local = rows.filter((r) => r.kind !== "manager" && r.lat != null);
   const lat = circle ? circle.lat : local.length ? local.reduce((a, r) => a + r.lat!, 0) / local.length : null;
   const lng = circle ? circle.lng : local.length ? local.reduce((a, r) => a + r.lng!, 0) / local.length : null;
-  await sb.from("areas").upsert({ area_key: key, query: area, lat, lng, discovered_at: new Date().toISOString(), community_count: rows.length, discovery_v: DISCOVERY_V });
+  await sb.from("areas").upsert({ area_key: key, query: area, lat, lng, discovered_at: new Date().toISOString(), community_count: rows.length, discovery_v: circle ? NEAR_V : DISCOVERY_V });
 }
 
 // ---------- 2. Platform detection ----------
@@ -597,15 +601,32 @@ async function runSearch(area: string, progress: Progress, near?: Near) {
   progress(0.03, near ? `Looking around ${near.place.name}` : `Looking up ${area}`);
   const { data: a } = await sb.from("areas").select("*").eq("area_key", key).maybeSingle();
   let discoveredNow = false;
-  if (!a || (a.discovery_v ?? 1) < DISCOVERY_V || Date.now() - new Date(a.discovered_at).getTime() > 30 * DAY) {
+  if (!a || (a.discovery_v ?? 1) < (near ? NEAR_V : DISCOVERY_V) || Date.now() - new Date(a.discovered_at).getTime() > 30 * DAY) {
     progress(0.06, near ? `Finding apartments, homes and townhomes near ${near.place.name}` : `Finding apartments, homes and townhomes in ${area}`);
     await discover(area, key, near ? { lat: near.place.lat, lng: near.place.lng, km: Math.ceil(near.km / 5) * 5 } : undefined); discoveredNow = true;
   }
-  let { data: comms } = await sb.from("communities").select("*").contains("area_keys", [key]);
-  comms = comms ?? [];
+  // A proximity search also uses every place already known inside its circle, whichever search found it.
+  const loadComms = async () => {
+    const own = (await sb.from("communities").select("*").contains("area_keys", [key])).data ?? [];
+    if (!near) return own;
+    const b = boxOf({ lat: near.place.lat, lng: near.place.lng, km: near.km });
+    const known = (await sb.from("communities").select("*").gte("lat", b.low.latitude).lte("lat", b.high.latitude).gte("lng", b.low.longitude).lte("lng", b.high.longitude).limit(2000)).data ?? [];
+    const seen = new Set(own.map((c: any) => c.place_id));
+    return [...own, ...known.filter((c: any) => !seen.has(c.place_id))];
+  };
+  let comms: any[] = await loadComms();
   // Only read what's inside the circle (property managers are kept: their homes are filtered one by one).
   const inCircle = (c: any) => !near || c.kind === "manager" || (c.lat != null && km([near.place.lat, near.place.lng], [c.lat, c.lng]) <= near.km);
   comms = comms.filter(inCircle);
+  // Measure distance / drive time first (it only needs locations), so only rentals within reach get read.
+  let reach: Map<string, any> | null = null;
+  if (near) {
+    progress(0.12, near.minutes ? `Timing the drive to ${near.place.name}` : `Measuring distance to ${near.place.name}`);
+    const kept = await withinReach(comms.filter((c) => c.kind !== "manager").map((c) => ({ ...c })), near);
+    reach = new Map(kept.map((c) => [c.place_id, { dist_mi: c.dist_mi, drive_min: c.drive_min, drive_est: c.drive_est }]));
+  }
+  const reachable = (c: any) => !reach || c.kind === "manager" || reach.has(c.place_id);
+  comms = comms.filter(reachable);
   progress(0.2, `Found ${comms.length} rental properties and managers`, { found: comms.length });
   const stale = comms.filter((c) => !c.detected_at || Date.now() - new Date(c.detected_at).getTime() > 30 * DAY);
   if (stale.length) {
@@ -624,7 +645,7 @@ async function runSearch(area: string, progress: Progress, near?: Near) {
       done++; progress(0.21 + 0.24 * (done / now.length), `Checking property websites (${done} of ${now.length})`);
       return r;
     }), 60000).catch(() => {});
-    comms = ((await sb.from("communities").select("*").contains("area_keys", [key])).data ?? []).filter(inCircle);
+    comms = (await loadComms()).filter(inCircle).filter(reachable);
   }
   const { data: aa } = await sb.from("areas").select("lat,lng,query").eq("area_key", key).maybeSingle();
   const center: [number, number] | null = near ? [near.place.lat, near.place.lng] : aa?.lat != null ? [aa.lat, aa.lng] : null;
@@ -634,14 +655,17 @@ async function runSearch(area: string, progress: Progress, near?: Near) {
 
   const managers = comms.filter((c) => c.kind === "manager");
   const sites = comms.filter((c) => c.kind !== "manager");
-  const readable = managers.filter((c) => c.reader && LISTING_READERS[c.reader]);
+  // Near a place, read the closest property managers' listings (each one can list homes across a whole metro).
+  const readable = managers.filter((c) => c.reader && LISTING_READERS[c.reader])
+    .sort((x, y) => (near && x.lat != null && y.lat != null ? km([near.place.lat, near.place.lng], [x.lat, x.lng]) - km([near.place.lat, near.place.lng], [y.lat, y.lng]) : 0))
+    .slice(0, near ? 15 : 999);
   const total = sites.length + readable.length;
   let read = 0, units = 0;
   const tick = () => { read++; progress(0.45 + 0.45 * (read / Math.max(1, total)), `Reading available units (${read} of ${total})`, { units }); };
   progress(0.45, `Reading available units (0 of ${total})`);
   const [results, homes] = await Promise.all([
     pool(sites, 10, async (c) => {
-      const base = { place_id: c.place_id, name: c.name, addr: c.addr, lat: c.lat, lng: c.lng, phone: c.phone, site: c.website, platform: c.platform, tours: c.tours ?? [], kind: c.kind ?? "apartment" };
+      const base = { place_id: c.place_id, name: c.name, addr: c.addr, lat: c.lat, lng: c.lng, phone: c.phone, site: c.website, platform: c.platform, tours: c.tours ?? [], kind: c.kind ?? "apartment", ...(reach?.get(c.place_id) ?? {}) };
       let out: any;
       if (c.reader && READERS[c.reader]) {
         const r = await readLive(c);
@@ -662,11 +686,8 @@ async function runSearch(area: string, progress: Progress, near?: Near) {
   // A home listed by two managers shows once.
   const seenAddr = new Set<string>();
   const homeList = homes.flat().filter((h: any) => { const k = h.addr.toLowerCase().replace(/[^a-z0-9]/g, ""); if (seenAddr.has(k)) return false; seenAddr.add(k); return true; });
-  let all = [...results, ...homeList];
-  if (near) {
-    progress(0.9, near.minutes ? `Timing the drive to ${near.place.name}` : `Measuring distance to ${near.place.name}`);
-    all = await withinReach(all, near);
-  }
+  // Homes from property managers have their own addresses: check each one's reach too.
+  const all = [...results, ...(near ? await withinReach(homeList, near) : homeList)];
 
   progress(0.92, `Saving ${units.toLocaleString()} open units`, { units });
   const nPlans = await attachFeatureKeys(all).catch(() => 0);
