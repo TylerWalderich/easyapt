@@ -383,6 +383,7 @@ function layoutContext(){
     for(const p of PIECES){ const f=fit(p), c=clearance(p);
       lines.push(`- ${p.name} ${p.w}x${p.d} in${p.estimated?" (estimated)":""} in ${p.room}: ${f.why}${c&&f.ok?`; walking room left ${Math.round(c.left)} in, right ${Math.round(c.right)} in, top ${Math.round(c.top)} in, bottom ${Math.round(c.bottom)} in`:""}`); } }
   else lines.push("No furniture placed yet.");
+  lines.push("Important: for pieces you add in this reply, do not state walking room or clearance numbers; the planner places them and shows exact measurements right after your reply. Only say each piece's size and whether it is smaller than the room. Use the fit check above only for pieces already placed.");
   return lines.join("\n");
 }
 async function send(text){
@@ -404,7 +405,13 @@ async function send(text){
     }
     HISTORY.push({role:"assistant",text:res.reply||"Done."});
     addMsg("assistant",`${esc(res.reply||"Done.")}${added.length?`<div class="added">${added.map(p=>`<button data-show="${p.id}">${esc(p.name)} · ${p.w}" × ${p.d}" · ${fit(p).ok?"fits":"doesn't fit"}</button>`).join("")}</div>`:""}`);
-    if(added.length){ ROOM=Math.max(0,ROOMS.findIndex(r=>r.name===added[0].room)); SEL=added[0].id; save(); renderPlan(); }
+    if(added.length){
+      ROOM=Math.max(0,ROOMS.findIndex(r=>r.name===added[0].room)); SEL=added[0].id; save(); renderPlan();
+      // Exact numbers from the planner, not the AI.
+      const lines=added.map(p=>{ const f=fit(p), c=clearance(p);
+        return `• ${p.name} in the ${p.room.toLowerCase()}: ${f.ok?"fits":f.why.toLowerCase()}${f.ok&&c?` (walking room ${["left","right","top","bottom"].filter(k=>c[k]>=1).map(k=>`${k} ${ftin(c[k])}`).join(", ")||"none, it's against the walls"})`:""}`; });
+      addMsg("assistant",`Placed at true scale:\n${esc(lines.join("\n"))}\nDrag pieces to try other spots.`);
+    }
   }catch(err){
     $("typing")?.remove(); HISTORY.pop();
     addMsg("assistant",`Sorry, that didn't go through (${esc(err.message)}). Try again in a moment.`);
